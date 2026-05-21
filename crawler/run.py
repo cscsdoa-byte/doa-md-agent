@@ -1,0 +1,760 @@
+from __future__ import annotations
+
+import argparse
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from crawler.adapters import EventPost, load_adapter
+from crawler.parse import is_doa_fit, parse_category, parse_deadline
+from crawler.store import (
+    STATUS_LABELS,
+    STATUS_VALUES,
+    add_applied_sku,
+    add_contact,
+    add_manual_event,
+    add_template,
+    connect,
+    delete_contact,
+    delete_event,
+    delete_template,
+    get_applied_skus,
+    list_contacts,
+    list_recent,
+    list_templates,
+    remove_applied_sku,
+    reset_event,
+    resolve_event,
+    set_ad_spend,
+    set_event_period,
+    set_event_sales,
+    set_memo,
+    set_status,
+    stats,
+    update_contact,
+    update_event_fields,
+    upsert_events,
+)
+
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure") and (_stream.encoding or "").lower() != "utf-8":
+        _stream.reconfigure(encoding="utf-8")
+
+CHANNELS_YAML = Path(__file__).resolve().parent / "channels.yaml"
+
+
+def load_channels() -> list[dict[str, Any]]:
+    with CHANNELS_YAML.open(encoding="utf-8") as f:
+        return yaml.safe_load(f)["channels"]
+
+
+def _annotate(post: EventPost) -> tuple[EventPost, str | None, Any, bool]:
+    cat = parse_category(post.title)
+    deadline = parse_deadline(post.title, post.posted_at)
+    fit = is_doa_fit(post.title, cat)
+    return post, cat, deadline, fit
+
+
+def cmd_crawl(only: list[str] | None, doa_only_log: bool) -> int:
+    channels = load_channels()
+    if only:
+        channels = [c for c in channels if c["key"] in only]
+    total_new = 0
+    total_seen = 0
+    failures: list[tuple[str, str]] = []
+    with connect() as conn:
+        for ch in channels:
+            try:
+                adapter = load_adapter(ch)
+                posts: list[EventPost] = adapter.fetch()
+            except NotImplementedError as e:
+                print(f"[skip] {ch['key']}: {e}", file=sys.stderr)
+                continue
+            except Exception as e:
+                failures.append((ch["key"], repr(e)))
+                print(f"[err ] {ch['key']}: {e!r}", file=sys.stderr)
+                continue
+            annotated = [_annotate(p) for p in posts]
+            new, seen = upsert_events(conn, annotated)
+            total_new += new
+            total_seen += seen
+            doa_count = sum(1 for _, _, _, f in annotated if f)
+            print(
+                f"[ok  ] {ch['key']:18s} fetched={len(posts):3d} "
+                f"new={new:3d} seen={seen:3d} doa_fit={doa_count:3d}"
+            )
+    print(f"\nTOTAL new={total_new} seen={total_seen} failures={len(failures)}")
+    return 1 if failures else 0
+
+
+def cmd_list(limit: int, doa_only: bool, channel: str | None, upcoming: int | None) -> int:
+    with connect() as conn:
+        rows = list_recent(
+            conn,
+            limit=limit,
+            doa_only=doa_only,
+            channel_key=channel,
+            upcoming_days=upcoming,
+        )
+        if not rows:
+            print("(no events)")
+            return 0
+        for r in rows:
+            short = r["dedup_id"][:6]
+            mark = "★" if r["is_doa_fit"] else " "
+            cat = f"[{r['category']}]" if r["category"] else ""
+            dl = r["deadline_at"][:16] if r["deadline_at"] else "마감미상"
+            posted = r["posted_at"][:10] if r["posted_at"] else "-"
+            status = STATUS_LABELS.get(r["status"], r["status"])
+            print(
+                f"{mark} {short} {posted} {dl} [{status:4s}] "
+                f"{r['channel_key']:18s} {cat} {r['title']}"
+            )
+            if r["memo"]:
+                print(f"          memo: {r['memo']}")
+            print(f"          {r['url']}")
+    return 0
+
+
+def cmd_status(id_prefix: str, status: str) -> int:
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        try:
+            set_status(conn, evt["dedup_id"], status)
+        except ValueError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        print(
+            f"✓ {evt['dedup_id'][:6]} {evt['title'][:60]}"
+            f"\n  → 상태: {STATUS_LABELS.get(status, status)}"
+        )
+    return 0
+
+
+def cmd_memo(id_prefix: str, memo: str) -> int:
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        set_memo(conn, evt["dedup_id"], memo)
+        print(f"✓ {evt['dedup_id'][:6]} {evt['title'][:60]}\n  memo: {memo}")
+    return 0
+
+
+def cmd_show(id_prefix: str) -> int:
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        print(f"id:        {evt['dedup_id']}")
+        print(f"채널:      {evt['channel_key']}")
+        print(f"제목:      {evt['title']}")
+        print(f"카테고리:  {evt['category'] or '-'}")
+        print(f"등록일:    {evt['posted_at'] or '-'}")
+        print(f"마감일:    {evt['deadline_at'] or '-'}")
+        print(f"상태:      {STATUS_LABELS.get(evt['status'], evt['status'])} "
+              f"({evt['status_updated_at'] or '미변경'})")
+        print(f"메모:      {evt['memo'] or '-'}")
+        print(f"URL:       {evt['url']}")
+        print(f"도아적합:  {'★' if evt['is_doa_fit'] else '-'}")
+        period_s = evt["sale_start"] or "-"
+        period_e = evt["sale_end"] or "-"
+        print(f"진행기간:  {period_s} ~ {period_e}")
+        skus = get_applied_skus(conn, evt["dedup_id"])
+        if skus:
+            print("등록SKU:")
+            for s in skus:
+                print(
+                    f"  - id={s['sku_id']:>4d}  "
+                    f"행사가 {int(s.get('sale_price', 0)):,}원  "
+                    f"수량 {s.get('qty_est', 0)}건  "
+                    f"{s.get('sku_name') or ''}"
+                )
+        else:
+            print("등록SKU:   (없음)")
+    return 0
+
+
+def _lookup_sku_name(sku_id: int) -> str | None:
+    """정산자동화웹에서 SKU 이름을 조회. 실패해도 None 반환 (등록은 계속 진행)."""
+    try:
+        from api.settle_client import SettleClient
+
+        with SettleClient() as c:
+            for s in c.skus():
+                if s.get("id") == sku_id:
+                    return s.get("product_name")
+    except Exception as e:  # noqa: BLE001
+        print(f"WARN: SKU 이름 조회 실패 ({e}) — id만 저장", file=sys.stderr)
+    return None
+
+
+def cmd_register(id_prefix: str, sku_id: int, sale_price: int, qty: int) -> int:
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        sku_name = _lookup_sku_name(sku_id)
+        add_applied_sku(conn, evt["dedup_id"], sku_id, sale_price, qty, sku_name)
+        print(
+            f"✓ {evt['dedup_id'][:6]} 행사에 SKU 등록\n"
+            f"  id={sku_id}  {sku_name or '(이름 조회 실패)'}\n"
+            f"  행사가 {sale_price:,}원  /  예상수량 {qty}건"
+        )
+    return 0
+
+
+def cmd_unregister(id_prefix: str, sku_id: int) -> int:
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        remove_applied_sku(conn, evt["dedup_id"], sku_id)
+        print(f"✓ {evt['dedup_id'][:6]} 행사에서 SKU id={sku_id} 제거")
+    return 0
+
+
+def _channel_settle_names(channel_key: str) -> list[str]:
+    """events.channel_key → channels.yaml 의 settle_channels 리스트."""
+    channels = load_channels()
+    for ch in channels:
+        if ch.get("key") == channel_key:
+            return list(ch.get("settle_channels") or [])
+    return []
+
+
+def cmd_sales(id_prefix: str, override_channels: list[str] | None, no_filter: bool) -> int:
+    """행사 등록 SKU + 기간으로 정산자동화웹 매출 매칭 후 실제 vs 예상 비교."""
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        skus = get_applied_skus(conn, evt["dedup_id"])
+        if not skus:
+            print("ERROR: 등록 SKU가 없습니다. register 로 먼저 등록.", file=sys.stderr)
+            return 1
+        if not (evt["sale_start"] and evt["sale_end"]):
+            print("ERROR: 진행기간이 없습니다. period 로 먼저 설정.", file=sys.stderr)
+            return 1
+
+        from api.sales import fetch_event_sales
+
+        # 채널 자동 매핑: events.channel_key → settle_channels
+        if no_filter:
+            channels = None
+        elif override_channels:
+            channels = override_channels
+        else:
+            channels = _channel_settle_names(evt["channel_key"]) or None
+
+        sku_names = [s.get("sku_name") for s in skus if s.get("sku_name")]
+        result = fetch_event_sales(
+            sku_names, evt["sale_start"], evt["sale_end"], channels=channels
+        )
+
+        expected_revenue = sum(
+            int(s.get("sale_price", 0)) * int(s.get("qty_est", 0)) for s in skus
+        )
+
+        # 결과를 DB에 캐시 (리포트가 매번 API 안 호출하게)
+        set_event_sales(conn, evt["dedup_id"], {**result, "expected_revenue": expected_revenue})
+
+    ch_label = (
+        "전 채널(필터 없음)" if no_filter else
+        (", ".join(channels) if channels else f"{evt['channel_key']} → 매핑 없음, 전 채널 사용")
+    )
+    print(f"\n=== {evt['title'][:60]} ===")
+    print(f"  기간:   {evt['sale_start']} ~ {evt['sale_end']}")
+    print(f"  채널:   {evt['channel_key']}  (매출 필터: {ch_label})")
+    print()
+    print(f"등록 SKU ({len(skus)}건, 예상 매출 {expected_revenue:,}원):")
+    for s in skus:
+        price = int(s.get("sale_price", 0))
+        qty = int(s.get("qty_est", 0))
+        name = s.get("sku_name") or f"#{s.get('sku_id')}"
+        print(f"  - {name:30s} {price:>8,}원 × {qty:>4}건 = {price*qty:>12,}원")
+
+    print()
+    print(f"정산자동화웹 매칭 결과 (전체 top-products {result['all_count']}건 중 {len(result['matched'])}건 매칭):")
+    if not result["matched"]:
+        print("  (매칭 없음 — SKU 이름이 매출 데이터에 안 잡힘. 이름 정확히 일치하는지 확인)")
+    else:
+        for m in result["matched"]:
+            print(
+                f"  - {m.get('product_name', ''):28s} "
+                f"매출 {int(m.get('sale', 0)):>12,}원  "
+                f"({int(m.get('qty', 0)):>4}건 / {int(m.get('orders', 0)):>4}주문)"
+            )
+
+    if result["unmatched"]:
+        print()
+        print(f"⚠️ 매칭 실패 SKU: {result['unmatched']}")
+
+    t = result["totals"]
+    sale = int(t.get("sale", 0))
+    op_profit = int(t.get("operating_profit", 0))
+    net_profit = int(t.get("net_profit", 0))
+    ad_spend = int(t.get("ad_spend", 0))
+    op_margin = (op_profit / sale * 100) if sale else 0
+    net_margin = (net_profit / sale * 100) if sale else 0
+    ad_warn = "  ⚠️ 전 채널 광고비 (채널 필터에 영향 안 받음)" if t.get("ad_spend_is_filtered") is False else ""
+
+    print()
+    print("=== 실제 매출 합계 ===")
+    print(f"  매출           {sale:>14,} 원")
+    print(f"  원가           {int(t['cost']):>14,} 원")
+    print(f"  수수료         {int(t['fee']):>14,} 원")
+    print(f"  택배비         {int(t['shipping']):>14,} 원")
+    print(f"  영업이익       {op_profit:>14,} 원   ← 매출-원가-수수료-택배비")
+    print(f"  영업이익률     {op_margin:>14.1f} %")
+    print()
+    print(f"  광고비         {ad_spend:>14,} 원{ad_warn}")
+    print(f"  순이익         {net_profit:>14,} 원   ← 영업이익-광고비")
+    print(f"  순이익률       {net_margin:>14.1f} %")
+    print()
+    print(f"  수량           {int(t['qty']):>14,} 건")
+    print(f"  주문수         {int(t['orders']):>14,} 건")
+    if expected_revenue > 0 and sale:
+        ratio = sale / expected_revenue * 100
+        print(f"\n  실제/예상 매출  {ratio:.1f}%  ({sale:,} / {expected_revenue:,})")
+    return 0
+
+
+def cmd_dump_json(out_path: str | None) -> int:
+    """events 전체를 JSON 파일로 dump. Next.js 캘린더 화면이 이걸 읽음."""
+    import json as _json
+    target = Path(out_path) if out_path else Path(__file__).resolve().parent.parent / "data" / "events.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM events ORDER BY COALESCE(deadline_at, posted_at) DESC").fetchall()
+        items = []
+        for r in rows:
+            d = dict(r)
+            d["short_id"] = d["dedup_id"][:6]
+            d["applied_skus"] = get_applied_skus(conn, d["dedup_id"])
+            if d.get("sales_json"):
+                try:
+                    d["sales"] = _json.loads(d["sales_json"])
+                except Exception:
+                    d["sales"] = None
+            else:
+                d["sales"] = None
+            # status_label 변환
+            d["status_label"] = STATUS_LABELS.get(d.get("status", "new"), d.get("status"))
+            # 너무 무거운 컬럼 제거
+            d.pop("raw_text", None)
+            d.pop("extra_json", None)
+            d.pop("sales_json", None)
+            d.pop("applied_skus_json", None)
+            items.append(d)
+        s = stats(conn)
+        contacts = [dict(r) for r in list_contacts(conn)]
+        templates = [dict(r) for r in list_templates(conn)]
+    payload = {
+        "generated_at": datetime.now().isoformat(),
+        "total": s["total"],
+        "doa_fit": s["doa_fit"],
+        "by_channel": s["by_channel"],
+        "events": items,
+        "contacts": contacts,
+        "templates": templates,
+    }
+    target.write_text(_json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    print(f"✓ dump: {target}  ({len(items)}건)")
+    return 0
+
+
+def cmd_reset(id_prefix: str) -> int:
+    """행사의 상태/메모/SKU/기간/매출캐시 초기화 (행사 자체는 유지)."""
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        reset_event(conn, evt["dedup_id"])
+        print(f"✓ {evt['dedup_id'][:6]} 초기화 (상태/메모/SKU/기간/매출 캐시 삭제)")
+        print(f"  제목: {evt['title'][:60]}")
+    return 0
+
+
+def cmd_ad_spend(id_prefix: str, amount: int | None) -> int:
+    """행사별 실제 광고비 입력. 0 또는 음수는 NULL 로 클리어."""
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        val = amount if (amount is not None and amount > 0) else None
+        set_ad_spend(conn, evt["dedup_id"], val)
+        print(f"✓ {evt['dedup_id'][:6]} 광고비: {val if val else '미입력'}")
+    return 0
+
+
+def cmd_contact_list(channel: str | None) -> int:
+    with connect() as conn:
+        rows = list_contacts(conn, channel_key=channel)
+        if not rows:
+            print("(연락처 없음)")
+            return 0
+        for r in rows:
+            line = f"#{r['id']:>3d}  [{r['channel_key']:18s}]  {r['name']}"
+            if r["kakao_id"]: line += f"  카톡:{r['kakao_id']}"
+            if r["phone"]:    line += f"  {r['phone']}"
+            print(line)
+            if r["memo"]: print(f"      memo: {r['memo']}")
+    return 0
+
+
+def cmd_contact_add(
+    channel_key: str, name: str,
+    kakao_id: str | None, phone: str | None, email: str | None, memo: str | None,
+) -> int:
+    with connect() as conn:
+        cid = add_contact(conn, channel_key, name, kakao_id, phone, email, memo)
+        print(f"✓ 연락처 #{cid} 추가: [{channel_key}] {name}")
+    return 0
+
+
+def cmd_contact_delete(contact_id: int) -> int:
+    with connect() as conn:
+        ok = delete_contact(conn, contact_id)
+        if ok:
+            print(f"✓ 연락처 #{contact_id} 삭제")
+            return 0
+        print(f"ERROR: #{contact_id} 없음", file=sys.stderr)
+        return 1
+
+
+def cmd_template_list() -> int:
+    with connect() as conn:
+        rows = list_templates(conn)
+        if not rows:
+            print("(템플릿 없음)")
+            return 0
+        for r in rows:
+            print(f"#{r['id']:>3d}  [{r['channel_key']:18s}]  {r['name']}")
+            print(f"      제목: {r['title_pattern']}")
+            if r["category"]: print(f"      카테고리: {r['category']}")
+            if r["recurrence"]: print(f"      반복: {r['recurrence']}")
+            if r["memo"]: print(f"      메모: {r['memo']}")
+    return 0
+
+
+def cmd_template_add(
+    name: str, channel_key: str, title_pattern: str,
+    category: str | None, recurrence: str | None, memo: str | None,
+) -> int:
+    with connect() as conn:
+        tid = add_template(
+            conn, name=name, channel_key=channel_key, title_pattern=title_pattern,
+            category=category, recurrence=recurrence, memo=memo,
+        )
+        print(f"✓ 템플릿 #{tid} 추가: [{channel_key}] {name}")
+    return 0
+
+
+def cmd_template_del(template_id: int) -> int:
+    with connect() as conn:
+        if delete_template(conn, template_id):
+            print(f"✓ 템플릿 #{template_id} 삭제")
+            return 0
+        print(f"ERROR: #{template_id} 없음", file=sys.stderr)
+        return 1
+
+
+def cmd_update(
+    id_prefix: str,
+    title: str | None,
+    deadline: str | None,
+    category: str | None,
+    url: str | None,
+) -> int:
+    """행사 본문 필드 수정 (제목/마감/카테고리/URL)."""
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        update_event_fields(
+            conn, evt["dedup_id"],
+            title=title, deadline=deadline, category=category, url=url,
+        )
+        print(f"✓ {evt['dedup_id'][:6]} 수정 완료")
+    return 0
+
+
+def cmd_delete(id_prefix: str, force: bool) -> int:
+    """행사 삭제. 기본은 수동등록(source='manual')만. --force 시 강제 삭제 (다음 crawl 재수집됨)."""
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        ok = delete_event(conn, evt["dedup_id"], manual_only=not force)
+        if not ok:
+            print(
+                f"ERROR: {evt['dedup_id'][:6]} 는 crawl 수집 행사라 삭제 안 됨 "
+                f"(--force 주면 강제 삭제, 단 다음 crawl 시 재수집).",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"✓ {evt['dedup_id'][:6]} 삭제: {evt['title'][:60]}")
+    return 0
+
+
+def cmd_add_event(
+    channel_key: str,
+    title: str,
+    deadline: str | None,
+    url: str | None,
+    memo: str | None,
+    category: str | None,
+    sale_start: str | None = None,
+    sale_end: str | None = None,
+) -> int:
+    """MD가 직접 받은 행사를 수동 등록 (RSS/공지에 안 뜨는 케이스)."""
+    valid = {c["key"] for c in load_channels()}
+    if channel_key not in valid:
+        print(f"ERROR: 알 수 없는 채널 '{channel_key}'. 가능: {sorted(valid)}", file=sys.stderr)
+        return 1
+    with connect() as conn:
+        dedup_id = add_manual_event(
+            conn,
+            channel_key=channel_key,
+            title=title,
+            deadline=deadline,
+            url=url,
+            memo=memo,
+            category=category,
+        )
+        if sale_start and sale_end:
+            set_event_period(conn, dedup_id, sale_start, sale_end)
+    period_msg = f"  진행기간 {sale_start} ~ {sale_end}\n" if sale_start and sale_end else ""
+    print(f"✓ 수동 행사 등록: {dedup_id[:6]} {title}")
+    print(period_msg + "  → register/period/status 등 일반 명령 그대로 사용 가능")
+    return 0
+
+
+def cmd_period(id_prefix: str, start: str, end: str) -> int:
+    try:
+        from datetime import datetime as _dt
+
+        _dt.fromisoformat(start)
+        _dt.fromisoformat(end)
+    except ValueError:
+        print("ERROR: 날짜는 YYYY-MM-DD 형식으로", file=sys.stderr)
+        return 1
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        set_event_period(conn, evt["dedup_id"], start, end)
+        print(f"✓ {evt['dedup_id'][:6]} 진행기간: {start} ~ {end}")
+    return 0
+
+
+def cmd_stats() -> int:
+    with connect() as conn:
+        s = stats(conn)
+        print(f"총 공고: {s['total']}건  (도아적합: {s['doa_fit']}건)")
+        print("채널별:")
+        for k, v in sorted(s["by_channel"].items(), key=lambda x: -x[1]):
+            print(f"  {k:20s} {v:4d}")
+    return 0
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(prog="md-crawl", description="도아 MD 에이전트 CLI")
+    sp = p.add_subparsers(dest="cmd", required=False)
+
+    pc = sp.add_parser("crawl", help="채널 폴링 + DB 적재")
+    pc.add_argument("-c", "--channel", action="append", help="특정 채널 key만 (반복 지정 가능)")
+    pc.add_argument("--doa-only", action="store_true", help="로그에서 도아적합만 강조")
+
+    pl = sp.add_parser("list", help="DB의 최근 공고 조회")
+    pl.add_argument("-n", "--limit", type=int, default=20)
+    pl.add_argument("--doa", action="store_true", help="도아 적합 공고만")
+    pl.add_argument("-c", "--channel", default=None)
+    pl.add_argument(
+        "--upcoming",
+        type=int,
+        default=None,
+        metavar="DAYS",
+        help="N일 이내 마감 행사만 (마감일 임박 순으로 정렬)",
+    )
+
+    sp.add_parser("stats", help="DB 통계")
+
+    pst = sp.add_parser("status", help="행사 상태 변경")
+    pst.add_argument("id_prefix", help="dedup_id 앞 6자 이상 (list로 확인)")
+    pst.add_argument("status", choices=STATUS_VALUES, help=f"가능: {', '.join(STATUS_VALUES)}")
+
+    pmm = sp.add_parser("memo", help="행사에 메모 추가/덮어쓰기")
+    pmm.add_argument("id_prefix")
+    pmm.add_argument("memo", help='메모 (따옴표로 감싸기)')
+
+    psh = sp.add_parser("show", help="행사 상세 조회")
+    psh.add_argument("id_prefix")
+
+    preg = sp.add_parser("register", help="행사에 SKU 등록 (행사가/예상수량)")
+    preg.add_argument("id_prefix")
+    preg.add_argument("sku_id", type=int)
+    preg.add_argument("sale_price", type=int)
+    preg.add_argument("-q", "--qty", type=int, default=0, help="예상 수량 (기본 0)")
+
+    punr = sp.add_parser("unregister", help="행사에서 SKU 제거")
+    punr.add_argument("id_prefix")
+    punr.add_argument("sku_id", type=int)
+
+    pper = sp.add_parser("period", help="행사 진행기간 설정 (YYYY-MM-DD)")
+    pper.add_argument("id_prefix")
+    pper.add_argument("start")
+    pper.add_argument("end")
+
+    psl = sp.add_parser("sales", help="행사 등록 SKU+기간으로 정산자동화웹 매출 매칭")
+    psl.add_argument("id_prefix")
+    psl.add_argument(
+        "-c", "--channel",
+        action="append",
+        default=None,
+        help="채널 강제 지정 (정산자동화웹 채널명, 반복 가능). 미지정 시 events.channel_key 기반 자동 매핑.",
+    )
+    psl.add_argument(
+        "--all-channels",
+        action="store_true",
+        help="채널 필터 끄고 전 채널 합산 (디버깅/탐색용)",
+    )
+
+    pdj = sp.add_parser("dump-json", help="events 전체를 JSON으로 dump (Next.js 화면용)")
+    pdj.add_argument("-o", "--out", default=None, help="출력 경로 (기본: data/events.json)")
+
+    prs = sp.add_parser("reset", help="행사의 상태/메모/SKU/기간/매출캐시 초기화 (행사 자체는 유지)")
+    prs.add_argument("id_prefix")
+
+    pdl = sp.add_parser("delete", help="행사 삭제 (기본은 수동등록만)")
+    pdl.add_argument("id_prefix")
+    pdl.add_argument("--force", action="store_true", help="crawl 수집 행사도 강제 삭제 (다음 crawl 재수집)")
+
+    pad_spend = sp.add_parser("ad-spend", help="행사별 실제 광고비 입력")
+    pad_spend.add_argument("id_prefix")
+    pad_spend.add_argument("amount", type=int, help="원 단위. 0 또는 음수면 클리어")
+
+    pcl = sp.add_parser("contact-list", help="MD 연락처 목록")
+    pcl.add_argument("-c", "--channel", default=None)
+
+    pca = sp.add_parser("contact-add", help="MD 연락처 추가")
+    pca.add_argument("channel_key")
+    pca.add_argument("name")
+    pca.add_argument("--kakao", default=None)
+    pca.add_argument("--phone", default=None)
+    pca.add_argument("--email", default=None)
+    pca.add_argument("--memo", default=None)
+
+    pcd = sp.add_parser("contact-del", help="MD 연락처 삭제")
+    pcd.add_argument("contact_id", type=int)
+
+    ptl = sp.add_parser("template-list", help="반복 행사 템플릿 목록")
+
+    pta = sp.add_parser("template-add", help="반복 행사 템플릿 추가")
+    pta.add_argument("name", help="템플릿 이름 (예: 네이버 오늘끝딜 주간)")
+    pta.add_argument("channel_key")
+    pta.add_argument("title_pattern", help="제목 패턴 (예: [오늘끝딜] {주차} 6/15일주차)")
+    pta.add_argument("--category", default=None)
+    pta.add_argument("--recurrence", default=None, help="weekly/monthly/biweekly 등 자유 텍스트")
+    pta.add_argument("--memo", default=None)
+
+    ptd = sp.add_parser("template-del", help="템플릿 삭제")
+    ptd.add_argument("template_id", type=int)
+
+    pup = sp.add_parser("update", help="행사 본문 수정 (제목/마감/카테고리/URL)")
+    pup.add_argument("id_prefix")
+    pup.add_argument("--title", default=None)
+    pup.add_argument("--deadline", default=None, help="YYYY-MM-DD (빈 문자열은 클리어)")
+    pup.add_argument("--category", default=None)
+    pup.add_argument("--url", default=None)
+
+    pad = sp.add_parser("add-event", help="수동 행사 등록 (MD 직접 연락 등 RSS에 안 뜨는 케이스)")
+    pad.add_argument("channel_key", help="channels.yaml 의 key (예: coupang_wing)")
+    pad.add_argument("title")
+    pad.add_argument("-d", "--deadline", help="신청 마감일 (YYYY-MM-DD)")
+    pad.add_argument("-u", "--url", help="관련 URL (없으면 manual:// placeholder)")
+    pad.add_argument("-m", "--memo", help="메모 (MD 이름, 통화 내용 등)")
+    pad.add_argument("--category", help="카테고리 (예: 신선, 푸드)")
+    pad.add_argument("--start", help="진행기간 시작일 (YYYY-MM-DD)")
+    pad.add_argument("--end", help="진행기간 종료일 (YYYY-MM-DD)")
+
+    args = p.parse_args()
+    if args.cmd is None or args.cmd == "crawl":
+        sys.exit(cmd_crawl(getattr(args, "channel", None), getattr(args, "doa_only", False)))
+    elif args.cmd == "list":
+        sys.exit(cmd_list(args.limit, args.doa, args.channel, args.upcoming))
+    elif args.cmd == "stats":
+        sys.exit(cmd_stats())
+    elif args.cmd == "status":
+        sys.exit(cmd_status(args.id_prefix, args.status))
+    elif args.cmd == "memo":
+        sys.exit(cmd_memo(args.id_prefix, args.memo))
+    elif args.cmd == "show":
+        sys.exit(cmd_show(args.id_prefix))
+    elif args.cmd == "register":
+        sys.exit(cmd_register(args.id_prefix, args.sku_id, args.sale_price, args.qty))
+    elif args.cmd == "unregister":
+        sys.exit(cmd_unregister(args.id_prefix, args.sku_id))
+    elif args.cmd == "period":
+        sys.exit(cmd_period(args.id_prefix, args.start, args.end))
+    elif args.cmd == "sales":
+        sys.exit(cmd_sales(args.id_prefix, args.channel, args.all_channels))
+    elif args.cmd == "add-event":
+        sys.exit(cmd_add_event(
+            args.channel_key, args.title, args.deadline, args.url, args.memo, args.category,
+            sale_start=args.start, sale_end=args.end,
+        ))
+    elif args.cmd == "dump-json":
+        sys.exit(cmd_dump_json(args.out))
+    elif args.cmd == "reset":
+        sys.exit(cmd_reset(args.id_prefix))
+    elif args.cmd == "delete":
+        sys.exit(cmd_delete(args.id_prefix, args.force))
+    elif args.cmd == "update":
+        sys.exit(cmd_update(args.id_prefix, args.title, args.deadline, args.category, args.url))
+    elif args.cmd == "ad-spend":
+        sys.exit(cmd_ad_spend(args.id_prefix, args.amount))
+    elif args.cmd == "contact-list":
+        sys.exit(cmd_contact_list(args.channel))
+    elif args.cmd == "contact-add":
+        sys.exit(cmd_contact_add(args.channel_key, args.name, args.kakao, args.phone, args.email, args.memo))
+    elif args.cmd == "contact-del":
+        sys.exit(cmd_contact_delete(args.contact_id))
+    elif args.cmd == "template-list":
+        sys.exit(cmd_template_list())
+    elif args.cmd == "template-add":
+        sys.exit(cmd_template_add(args.name, args.channel_key, args.title_pattern, args.category, args.recurrence, args.memo))
+    elif args.cmd == "template-del":
+        sys.exit(cmd_template_del(args.template_id))
+
+
+if __name__ == "__main__":
+    main()

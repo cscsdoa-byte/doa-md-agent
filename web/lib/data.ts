@@ -1,0 +1,99 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
+export interface AppliedSku {
+  sku_id: number;
+  sale_price: number;
+  qty_est: number;
+  sku_name: string | null;
+}
+
+export interface SalesTotals {
+  sale: number;
+  cost: number;
+  fee: number;
+  shipping: number;
+  ad_spend: number;
+  qty: number;
+  orders: number;
+  operating_profit: number;
+  net_profit: number;
+  ad_spend_is_filtered?: boolean;
+}
+
+export interface EventItem {
+  dedup_id: string;
+  short_id: string;
+  channel_key: string;
+  title: string;
+  url: string;
+  posted_at: string | null;
+  deadline_at: string | null;
+  category: string | null;
+  is_doa_fit: number;
+  status: string;
+  status_label: string;
+  status_updated_at: string | null;
+  memo: string | null;
+  sale_start: string | null;
+  sale_end: string | null;
+  applied_skus: AppliedSku[];
+  sales: { totals?: SalesTotals; expected_revenue?: number; channels_used?: string[]; matched?: unknown[] } | null;
+  sales_synced_at: string | null;
+  source: string;
+  ad_spend_manual: number | null;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface Contact {
+  id: number;
+  channel_key: string;
+  name: string;
+  kakao_id: string | null;
+  phone: string | null;
+  email: string | null;
+  memo: string | null;
+  last_contact_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EventTemplate {
+  id: number;
+  name: string;
+  channel_key: string;
+  title_pattern: string;
+  category: string | null;
+  recurrence: string | null;
+  memo: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EventsPayload {
+  generated_at: string;
+  total: number;
+  doa_fit: number;
+  by_channel: Record<string, number>;
+  events: EventItem[];
+  contacts?: Contact[];
+  templates?: EventTemplate[];
+}
+
+const DATA_PATH = join(process.cwd(), "..", "data", "events.json");
+
+export async function loadEvents(): Promise<EventsPayload> {
+  try {
+    const raw = await readFile(DATA_PATH, "utf-8");
+    return JSON.parse(raw) as EventsPayload;
+  } catch (e) {
+    return {
+      generated_at: new Date().toISOString(),
+      total: 0,
+      doa_fit: 0,
+      by_channel: {},
+      events: [],
+    };
+  }
+}
