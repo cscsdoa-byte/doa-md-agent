@@ -22,6 +22,7 @@ from crawler.store import (
     delete_event,
     delete_template,
     get_applied_skus,
+    list_channels_master,
     list_contacts,
     list_recent,
     list_templates,
@@ -367,6 +368,7 @@ def cmd_dump_json(out_path: str | None) -> int:
         s = stats(conn)
         contacts = [dict(r) for r in list_contacts(conn)]
         templates = [dict(r) for r in list_templates(conn)]
+        channels_master = [dict(r) for r in list_channels_master(conn)]
     payload = {
         "generated_at": datetime.now().isoformat(),
         "total": s["total"],
@@ -375,6 +377,7 @@ def cmd_dump_json(out_path: str | None) -> int:
         "events": items,
         "contacts": contacts,
         "templates": templates,
+        "channels_master": channels_master,
     }
     target.write_text(_json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"✓ dump: {target}  ({len(items)}건)")
@@ -442,6 +445,27 @@ def cmd_contact_delete(contact_id: int) -> int:
             return 0
         print(f"ERROR: #{contact_id} 없음", file=sys.stderr)
         return 1
+
+
+def cmd_sync_channels(dry: bool) -> int:
+    """정산자동화웹 facets → channels_master DB 동기화."""
+    from crawler.sync_channels import sync
+    return sync(dry)
+
+
+def cmd_channel_list() -> int:
+    with connect() as conn:
+        rows = list_channels_master(conn)
+        if not rows:
+            print("(채널 마스터 비어있음 — sync-channels 먼저 실행)")
+            return 0
+        print(f"{'settle_name':20s}  {'abbr':5s}  {'fee':6s}  {'src':6s}  display_name")
+        print("-" * 80)
+        for r in rows:
+            fee = f"{r['default_fee_rate']*100:.2f}%" if r['default_fee_rate'] is not None else "-"
+            mark = "💰" if r["is_sales"] else "📰"
+            print(f"{r['settle_name']:20s}  {(r['abbr'] or '-'):5s}  {fee:6s}  {r['source']:6s}  {mark} {r['display_name']}")
+    return 0
 
 
 def cmd_template_list() -> int:
@@ -676,6 +700,11 @@ def main() -> None:
     pcd = sp.add_parser("contact-del", help="MD 연락처 삭제")
     pcd.add_argument("contact_id", type=int)
 
+    psc = sp.add_parser("sync-channels", help="정산자동화웹 facets → channels_master DB 동기화")
+    psc.add_argument("--dry", action="store_true")
+
+    pchl = sp.add_parser("channel-list", help="채널 마스터 목록")
+
     ptl = sp.add_parser("template-list", help="반복 행사 템플릿 목록")
 
     pta = sp.add_parser("template-add", help="반복 행사 템플릿 추가")
@@ -748,6 +777,10 @@ def main() -> None:
         sys.exit(cmd_contact_add(args.channel_key, args.name, args.kakao, args.phone, args.email, args.memo))
     elif args.cmd == "contact-del":
         sys.exit(cmd_contact_delete(args.contact_id))
+    elif args.cmd == "sync-channels":
+        sys.exit(cmd_sync_channels(args.dry))
+    elif args.cmd == "channel-list":
+        sys.exit(cmd_channel_list())
     elif args.cmd == "template-list":
         sys.exit(cmd_template_list())
     elif args.cmd == "template-add":

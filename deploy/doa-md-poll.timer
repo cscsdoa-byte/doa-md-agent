@@ -1,0 +1,19 @@
+# /etc/systemd/system/doa-md-poll.timer
+# 매시간 정각 폴링 (RSS는 가볍고 dedup 있으니 자주 돌아도 OK).
+#
+# 사용:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now doa-md-poll.timer
+#   systemctl list-timers --all | grep doa-md
+#   sudo journalctl -u doa-md-poll.service -n 30
+
+[Unit]
+Description=Doa MD Agent — hourly poll
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=doa-md-poll.service
+
+[Install]
+WantedBy=timers.target

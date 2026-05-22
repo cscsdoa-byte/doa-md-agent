@@ -118,6 +118,23 @@ def _migrate(conn: sqlite3.Connection) -> None:
         )"""
     )
 
+    # 채널 마스터 — 정산자동화웹 facets API 자동 동기화 + yaml 기반 정보채널.
+    # key = settle_name 으로 1:1 매핑되는 게 기본. yaml 의 settle_channels 가 여러 개면 각각 row.
+    # source: "settle" (정산자동화웹 동기화) / "yaml" (정보채널, 어댑터와 묶임) / "manual" (사용자 추가)
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS channels_master (
+            settle_name      TEXT PRIMARY KEY,
+            display_name     TEXT NOT NULL,
+            yaml_key         TEXT,
+            is_sales         INTEGER NOT NULL DEFAULT 1,
+            abbr             TEXT,
+            default_fee_rate REAL,
+            source           TEXT NOT NULL DEFAULT 'settle',
+            last_synced_at   TEXT,
+            created_at       TEXT NOT NULL
+        )"""
+    )
+
 
 @contextmanager
 def connect(db_path: Path = DB_PATH) -> Iterator[sqlite3.Connection]:
@@ -326,6 +343,57 @@ def add_template(
 
 def delete_template(conn: sqlite3.Connection, template_id: int) -> bool:
     cur = conn.execute("DELETE FROM event_templates WHERE id = ?", (template_id,))
+    return cur.rowcount > 0
+
+
+# ----- 채널 마스터 CRUD -----
+
+def list_channels_master(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM channels_master ORDER BY is_sales DESC, display_name"
+    ).fetchall()
+
+
+def upsert_channel_master(
+    conn: sqlite3.Connection,
+    settle_name: str,
+    display_name: str,
+    yaml_key: str | None = None,
+    is_sales: bool = True,
+    abbr: str | None = None,
+    default_fee_rate: float | None = None,
+    source: str = "settle",
+) -> None:
+    """INSERT OR UPDATE. last_synced_at 자동 갱신."""
+    now = datetime.now().isoformat()
+    existing = conn.execute(
+        "SELECT 1 FROM channels_master WHERE settle_name = ?",
+        (settle_name,),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            """UPDATE channels_master SET
+                display_name = COALESCE(?, display_name),
+                yaml_key = COALESCE(?, yaml_key),
+                is_sales = ?,
+                abbr = COALESCE(?, abbr),
+                default_fee_rate = COALESCE(?, default_fee_rate),
+                source = ?,
+                last_synced_at = ?
+               WHERE settle_name = ?""",
+            (display_name, yaml_key, 1 if is_sales else 0, abbr, default_fee_rate, source, now, settle_name),
+        )
+    else:
+        conn.execute(
+            """INSERT INTO channels_master
+               (settle_name, display_name, yaml_key, is_sales, abbr, default_fee_rate, source, last_synced_at, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (settle_name, display_name, yaml_key, 1 if is_sales else 0, abbr, default_fee_rate, source, now, now),
+        )
+
+
+def delete_channel_master(conn: sqlite3.Connection, settle_name: str) -> bool:
+    cur = conn.execute("DELETE FROM channels_master WHERE settle_name = ?", (settle_name,))
     return cur.rowcount > 0
 
 

@@ -2,9 +2,13 @@
  * 정산자동화웹 API 클라이언트 (Next.js 서버 측 전용).
  * Python settle_client.py 의 TS 버전.
  *
- * 토큰은 doa-md-agent/.env 의 SETTLE_API_TOKEN (next.config.ts 가 로드).
- * 8시간 만료 — 만료 시 401 처리.
+ * 토큰은 doa-md-agent/.env 의 SETTLE_API_TOKEN.
+ * auto_login 으로 .env 가 갱신될 때 dev 서버 재시작 없이 즉시 반영되도록
+ * 매 호출마다 디스크에서 다시 읽음 (작은 파일이라 성능 영향 미미).
  */
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const BASE = (process.env.SETTLE_BASE_URL || "http://3.37.214.243").replace(/\/$/, "");
 
@@ -14,8 +18,24 @@ export class SettleError extends Error {
   }
 }
 
+function readTokenFresh(): string {
+  // 매 호출마다 .env 디스크에서 직접 읽기 — auto_login 갱신 즉시 반영용
+  try {
+    const envPath = join(process.cwd(), "..", ".env");
+    const text = readFileSync(envPath, "utf-8");
+    const m = text.match(/^SETTLE_API_TOKEN=(.+)$/m);
+    if (m) {
+      const fresh = m[1].trim();
+      if (fresh) return fresh;
+    }
+  } catch {
+    // ignore
+  }
+  return process.env.SETTLE_API_TOKEN || "";
+}
+
 async function get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
-  const token = process.env.SETTLE_API_TOKEN;
+  const token = readTokenFresh();
   if (!token) {
     throw new SettleError(0, "SETTLE_API_TOKEN 이 .env 에 없습니다");
   }
