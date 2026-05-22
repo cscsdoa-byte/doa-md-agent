@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { Contact, EventItem, EventTemplate } from "@/lib/data";
 import type { ChannelDef } from "@/lib/channels";
 import { themeOf } from "@/lib/channelTheme";
@@ -757,7 +758,7 @@ export default function Calendar({
                 return (
                   <div className="text-xs text-gray-500">
                     이 채널 담당 MD 등록 없음 —{" "}
-                    <a href="/contacts" className="text-blue-600 hover:underline">📇 연락처에서 추가</a>
+                    <Link href="/contacts" className="text-blue-600 hover:underline">📇 연락처에서 추가</Link>
                   </div>
                 );
               }

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import TemplatesManager from "@/components/TemplatesManager";
 import { loadChannels } from "@/lib/channels";
 import { loadEvents } from "@/lib/data";
@@ -17,7 +18,7 @@ export default async function TemplatesPage() {
               주간/월간 정례 행사를 한 번 등록 → 매번 새 행사 만들 때 자동으로 채워줍니다.
             </p>
           </div>
-          <a href="/" className="text-sm text-blue-600 hover:underline">← 캘린더로</a>
+          <Link href="/" className="text-sm text-blue-600 hover:underline">← 캘린더로</Link>
         </header>
         <TemplatesManager
           templates={payload.templates ?? []}

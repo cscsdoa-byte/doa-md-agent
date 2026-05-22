@@ -1,3 +1,4 @@
+import Link from "next/link";
 import Calendar from "@/components/Calendar";
 import { loadChannels } from "@/lib/channels";
 import { loadEvents } from "@/lib/data";
@@ -20,24 +21,24 @@ export default async function Home() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <a
+            <Link
               href="/templates"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
             >
               🔁 템플릿
-            </a>
-            <a
+            </Link>
+            <Link
               href="/contacts"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
             >
               📇 MD 연락처
-            </a>
-            <a
+            </Link>
+            <Link
               href="/simulator"
               className="px-4 py-2 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700"
             >
               🧮 마진 시뮬레이터
-            </a>
+            </Link>
             <a
               href={settleBase}
               target="_blank"

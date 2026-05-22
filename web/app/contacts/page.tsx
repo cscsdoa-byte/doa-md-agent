@@ -1,3 +1,4 @@
+import Link from "next/link";
 import ContactsManager from "@/components/ContactsManager";
 import { loadChannels } from "@/lib/channels";
 import { loadEvents } from "@/lib/data";
@@ -17,7 +18,7 @@ export default async function ContactsPage() {
               채널별 담당 MD 정보. 행사 잡을 때 한 번 입력해두면 다음에 또 씁니다.
             </p>
           </div>
-          <a href="/" className="text-sm text-blue-600 hover:underline">← 캘린더로</a>
+          <Link href="/" className="text-sm text-blue-600 hover:underline">← 캘린더로</Link>
         </header>
         <ContactsManager
           contacts={payload.contacts ?? []}
