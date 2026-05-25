@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { EventTemplate } from "@/lib/data";
 import type { ChannelDef } from "@/lib/channels";
 import { themeOf } from "@/lib/channelTheme";
+import { apiUrl } from "@/lib/api";
 
 export default function TemplatesManager({
   templates,
@@ -35,7 +36,7 @@ export default function TemplatesManager({
     }
     setBusy(true);
     try {
-      const r = await fetch("/api/templates", {
+      const r = await fetch(apiUrl("/api/templates"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
@@ -56,7 +57,7 @@ export default function TemplatesManager({
     if (!confirm(`템플릿 "${name}" 을 삭제할까요?`)) return;
     setBusy(true);
     try {
-      const r = await fetch(`/api/templates/${id}`, { method: "DELETE" });
+      const r = await fetch(apiUrl(`/api/templates/${id}`), { method: "DELETE" });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         setError(j.error || `HTTP ${r.status}`);

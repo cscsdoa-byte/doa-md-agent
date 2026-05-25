@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { apiUrl } from "@/lib/api";
 import type { Contact, EventItem, EventTemplate } from "@/lib/data";
 import type { ChannelDef } from "@/lib/channels";
 import { themeOf } from "@/lib/channelTheme";
@@ -125,7 +126,7 @@ export default function Calendar({
     setError(null);
     setBusy(label);
     try {
-      const r = await fetch(url, {
+      const r = await fetch(apiUrl(url), {
         method,
         headers: body ? { "Content-Type": "application/json" } : undefined,
         body: body ? JSON.stringify(body) : undefined,

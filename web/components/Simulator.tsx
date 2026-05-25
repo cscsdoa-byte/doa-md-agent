@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { apiUrl } from "@/lib/api";
 
 interface SkuHit {
   id: number;
@@ -137,7 +138,7 @@ export default function Simulator() {
     setSkuLoading(true);
     setSkuError(null);
     try {
-      const r = await fetch(`/api/skus?q=${encodeURIComponent(q)}&limit=20`);
+      const r = await fetch(apiUrl(`/api/skus?q=${encodeURIComponent(q)}&limit=20`));
       const j = await r.json();
       if (!r.ok) {
         setSkuError(j.error || `HTTP ${r.status}`);

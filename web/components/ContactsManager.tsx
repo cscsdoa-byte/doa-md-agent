@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Contact } from "@/lib/data";
 import type { ChannelDef } from "@/lib/channels";
 import { themeOf } from "@/lib/channelTheme";
+import { apiUrl } from "@/lib/api";
 
 export default function ContactsManager({
   contacts,
@@ -48,7 +49,7 @@ export default function ContactsManager({
     }
     setBusy(true);
     try {
-      const r = await fetch("/api/contacts", {
+      const r = await fetch(apiUrl("/api/contacts"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
@@ -71,7 +72,7 @@ export default function ContactsManager({
     if (!confirm(`${name} 연락처를 삭제할까요?`)) return;
     setBusy(true);
     try {
-      const r = await fetch(`/api/contacts/${id}`, { method: "DELETE" });
+      const r = await fetch(apiUrl(`/api/contacts/${id}`), { method: "DELETE" });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         setError(j.error || `HTTP ${r.status}`);
