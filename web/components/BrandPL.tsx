@@ -9,17 +9,10 @@ function fmt(n: number | undefined | null): string {
   return Math.round(n).toLocaleString();
 }
 
-function ratePct(profit?: number, sale?: number): string {
+function pct(profit?: number, sale?: number): string {
   if (!profit || !sale) return "-";
   return ((profit / sale) * 100).toFixed(1) + "%";
 }
-
-const BRAND_COLOR: Record<string, string> = {
-  조선팔도떡집: "bg-amber-50 border-amber-300",
-  루윈테리어: "bg-sky-50 border-sky-300",
-  셀인룸: "bg-rose-50 border-rose-300",
-  오트메딘: "bg-emerald-50 border-emerald-300",
-};
 
 export default function BrandPL({ items }: Props) {
   if (!items || items.length === 0) return null;
@@ -31,39 +24,75 @@ export default function BrandPL({ items }: Props) {
       </div>
     );
   }
+
   return (
     <div className="mb-4">
-      <div className="text-sm font-semibold text-slate-700 mb-2">📊 이번 달 브랜드 PL (정산자동화웹)</div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-        {items.map(({ brand, data }) => {
-          const color = BRAND_COLOR[brand] ?? "bg-slate-50 border-slate-300";
-          const t = data?.totals;
-          const sale = t?.real_sale ?? t?.sale_ezadmin;
-          const opProfit = t?.operating_profit;
-          const margin = ratePct(opProfit, sale);
-          return (
-            <div key={brand} className={`border-l-4 rounded p-3 ${color}`}>
-              <div className="text-sm font-bold mb-1">{brand}</div>
-              {!data ? (
-                <div className="text-xs text-slate-500">데이터 없음</div>
-              ) : (
-                <div className="text-xs space-y-0.5">
-                  <div>매출 <b>{fmt(sale)}</b>원</div>
-                  <div>원가 {fmt(t?.cost)}</div>
-                  <div>수수료 {fmt(t?.fee)}</div>
-                  <div>광고비 {fmt(t?.ad_cost)}</div>
-                  <div className="border-t border-slate-300 pt-0.5 mt-0.5">
-                    영업이익 <b className="text-emerald-700">{fmt(opProfit)}</b>원
-                  </div>
-                  <div>마진율 <b>{margin}</b></div>
-                  <div className="text-[10px] text-slate-500">주문 {fmt(t?.orders)} / 수량 {fmt(t?.qty)}</div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+      <div className="text-sm font-semibold text-slate-700 mb-2">
+        📊 이번 달 PL (정산자동화웹) — 조선팔도떡집
       </div>
-      <div className="text-[10px] text-slate-400 mt-1">{items[0].data?.range.start} ~ {items[0].data?.range.end} · 정산자동화웹 dashboard summary</div>
+      {items.map(({ brand, data }) => {
+        const t = data?.totals;
+        const sale = t?.real_sale ?? t?.sale_ezadmin;
+        const opProfit = t?.operating_profit;
+        const netProfit = t?.net_profit;
+        const opMargin = pct(opProfit, sale);
+        const netMargin = pct(netProfit, sale);
+        return (
+          <div
+            key={brand}
+            className="border-l-4 border-amber-500 bg-amber-50 rounded p-4 grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1"
+          >
+            <div className="col-span-2 md:col-span-4 flex items-baseline justify-between mb-1">
+              <div className="text-base font-bold text-amber-900">{brand}</div>
+              <div className="text-[11px] text-amber-700">
+                {data?.range.start} ~ {data?.range.end}
+              </div>
+            </div>
+
+            {!data ? (
+              <div className="col-span-2 md:col-span-4 text-xs text-slate-500">데이터 없음</div>
+            ) : (
+              <>
+                {/* 매출 박스 */}
+                <div className="bg-white rounded p-2 col-span-2 md:col-span-2">
+                  <div className="text-[10px] text-slate-500 mb-0.5">실 매출</div>
+                  <div className="text-lg font-bold">{fmt(sale)}원</div>
+                  <div className="text-[10px] text-slate-500 mt-1">
+                    주문 {fmt(t?.orders)} · 수량 {fmt(t?.qty)}
+                  </div>
+                </div>
+
+                {/* 영업이익 (광고비 전) */}
+                <div className="bg-white rounded p-2">
+                  <div className="text-[10px] text-slate-500 mb-0.5">영업이익 <span className="text-amber-700">(광고비 전)</span></div>
+                  <div className="text-sm font-bold text-emerald-700">{fmt(opProfit)}원</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">마진율 {opMargin}</div>
+                </div>
+
+                {/* 순이익 (광고비 후) */}
+                <div className="bg-white rounded p-2">
+                  <div className="text-[10px] text-slate-500 mb-0.5">순이익 <span className="text-rose-700">(광고비 후)</span></div>
+                  <div className={`text-sm font-bold ${(netProfit ?? 0) >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                    {fmt(netProfit)}원
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">순이익률 {netMargin}</div>
+                </div>
+
+                {/* 세부 비용 */}
+                <div className="col-span-2 md:col-span-4 grid grid-cols-4 gap-2 text-xs mt-1 pt-2 border-t border-amber-200">
+                  <div>원가 <b>{fmt(t?.cost)}</b></div>
+                  <div>수수료 <b>{fmt(t?.fee)}</b></div>
+                  <div>택배비 <b>{fmt(t?.shipping)}</b></div>
+                  <div>광고비 <b className="text-rose-600">{fmt(t?.ad_cost)}</b></div>
+                </div>
+                <div className="col-span-2 md:col-span-4 text-[10px] text-slate-500 mt-1">
+                  공식: 영업이익 = 매출 − 원가 − 수수료 − 택배비 / 순이익 = 영업이익 − 광고비
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -144,9 +144,25 @@ def _migrate(conn: sqlite3.Connection) -> None:
             default_fee_rate REAL,
             source           TEXT NOT NULL DEFAULT 'settle',
             last_synced_at   TEXT,
-            created_at       TEXT NOT NULL
+            created_at       TEXT NOT NULL,
+            status           TEXT,
+            priority         TEXT,
+            note             TEXT,
+            url              TEXT,
+            sku_matrix_json  TEXT
         )"""
     )
+    # channels_master 컬럼 마이그레이션 (기존 row 보존)
+    ch_cols = {r[1] for r in conn.execute("PRAGMA table_info(channels_master)")}
+    for col, ddl in (
+        ("status", "ALTER TABLE channels_master ADD COLUMN status TEXT"),
+        ("priority", "ALTER TABLE channels_master ADD COLUMN priority TEXT"),
+        ("note", "ALTER TABLE channels_master ADD COLUMN note TEXT"),
+        ("url", "ALTER TABLE channels_master ADD COLUMN url TEXT"),
+        ("sku_matrix_json", "ALTER TABLE channels_master ADD COLUMN sku_matrix_json TEXT"),
+    ):
+        if col not in ch_cols:
+            conn.execute(ddl)
 
 
 @contextmanager

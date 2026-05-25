@@ -154,7 +154,8 @@ export async function fetchSummary(params: {
   }
 }
 
-const DOA_BRANDS = ["조선팔도떡집", "루윈테리어", "셀인룸", "오트메딘"] as const;
+// 조선팔도떡집 = MD 에이전트가 관리하는 떡집 브랜드. 다른 도아 브랜드는 정산자동화웹 본진에서.
+const DOA_BRANDS = ["조선팔도떡집"] as const;
 
 /** 4개 브랜드 이번 달 PL 한꺼번에 (병렬). */
 export async function fetchBrandPL(): Promise<{ brand: string; data: DashboardSummary | null }[]> {
