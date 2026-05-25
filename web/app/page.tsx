@@ -28,6 +28,12 @@ export default async function Home() {
           </div>
           <div className="flex items-center gap-2">
             <Link
+              href="/events"
+              className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
+            >
+              📊 행사 표
+            </Link>
+            <Link
               href="/templates"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
             >
