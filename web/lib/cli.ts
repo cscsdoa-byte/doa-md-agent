@@ -4,10 +4,12 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-// uv 경로는 환경에 따라 다를 수 있음 — .local\bin 기본
+// uv 경로 — 플랫폼별 분기. UV_PATH 환경변수로 override 가능.
 const UV_PATH =
   process.env.UV_PATH ||
-  path.join(process.env.USERPROFILE || "C:\\Users\\User", ".local", "bin", "uv.exe");
+  (process.platform === "win32"
+    ? path.join(process.env.USERPROFILE || "C:\\Users\\User", ".local", "bin", "uv.exe")
+    : path.join(process.env.HOME || "/home/ubuntu", ".local", "bin", "uv"));
 
 // crawler 프로젝트 루트 (web/ 의 한 단계 위)
 const PROJECT_DIR = path.join(process.cwd(), "..");
