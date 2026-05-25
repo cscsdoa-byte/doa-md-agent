@@ -116,6 +116,31 @@ export default function Calendar({
   const [newMemo, setNewMemo] = useState("");
   const [newSaleStart, setNewSaleStart] = useState("");
   const [newSaleEnd, setNewSaleEnd] = useState("");
+  // SKU 자동 등록 (정산자동화웹 검색)
+  const [newSkuQuery, setNewSkuQuery] = useState("");
+  const [newSkuHits, setNewSkuHits] = useState<{ id: number; product_name: string; cost: number; shipping_fee: number }[]>([]);
+  const [newSkuSearching, setNewSkuSearching] = useState(false);
+  const [newPickedSku, setNewPickedSku] = useState<{ id: number; product_name: string; cost: number; shipping_fee: number } | null>(null);
+  const [newSkuPrice, setNewSkuPrice] = useState("");
+  const [newSkuQty, setNewSkuQty] = useState("");
+  const [newAdSpend, setNewAdSpend] = useState("");
+
+  async function searchSkusForNew() {
+    if (!newSkuQuery.trim()) {
+      setNewSkuHits([]);
+      return;
+    }
+    setNewSkuSearching(true);
+    try {
+      const r = await fetch(apiUrl(`/api/skus?q=${encodeURIComponent(newSkuQuery)}&limit=15`));
+      const j = await r.json();
+      setNewSkuHits(j.items || []);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setNewSkuSearching(false);
+    }
+  }
 
   async function apiCall(
     label: string,
@@ -271,19 +296,68 @@ export default function Calendar({
       setError("진행기간은 시작·종료 둘 다 입력");
       return;
     }
-    const ok = await apiCall("add-event", `/api/event`, "POST", {
-      channel_key: newCh,
-      title: newTitle,
-      deadline: newDeadline || undefined,
-      category: newCategory || undefined,
-      memo: newMemo || undefined,
-      sale_start: newSaleStart || undefined,
-      sale_end: newSaleEnd || undefined,
-    });
-    if (ok) {
+    if (newPickedSku && (!newSkuPrice || parseInt(newSkuPrice, 10) <= 0)) {
+      setError("SKU 선택 시 행사가 필수");
+      return;
+    }
+    setError(null);
+    setBusy("add-event");
+    try {
+      // 1. 행사 등록
+      const r = await fetch(apiUrl(`/api/event`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel_key: newCh,
+          title: newTitle,
+          deadline: newDeadline || undefined,
+          category: newCategory || undefined,
+          memo: newMemo || undefined,
+          sale_start: newSaleStart || undefined,
+          sale_end: newSaleEnd || undefined,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.dedup_id) {
+        setError(j.error || "행사 등록 실패");
+        return;
+      }
+      const newId = j.dedup_id.slice(0, 6);
+
+      // 2. SKU 자동 등록 (선택 사항)
+      if (newPickedSku && newSkuPrice) {
+        await fetch(apiUrl(`/api/event/${newId}/register`), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sku_id: newPickedSku.id,
+            sale_price: parseInt(newSkuPrice, 10),
+            qty: parseInt(newSkuQty || "0", 10) || 0,
+          }),
+        });
+      }
+
+      // 3. 광고비 (선택 사항)
+      const ad = parseInt(newAdSpend || "0", 10);
+      if (ad > 0) {
+        await fetch(apiUrl(`/api/event/${newId}`), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ad_spend: ad }),
+        });
+      }
+
+      // 폼 초기화 + 닫기
       setNewTitle(""); setNewDeadline(""); setNewCategory(""); setNewMemo("");
       setNewSaleStart(""); setNewSaleEnd("");
+      setNewSkuQuery(""); setNewSkuHits([]); setNewPickedSku(null);
+      setNewSkuPrice(""); setNewSkuQty(""); setNewAdSpend("");
       setNewOpen(false);
+      startTransition(() => router.refresh());
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -412,6 +486,99 @@ export default function Calendar({
               </div>
             </div>
             <textarea placeholder="메모 (MD 이름, 통화 내용, 행사 조건 등)" rows={2} className="w-full text-sm border rounded px-2 py-1.5" value={newMemo} onChange={(e) => setNewMemo(e.target.value)} />
+
+            {/* SKU 자동 등록 (선택 사항) */}
+            <div className="border-t border-emerald-200 pt-2 mt-2">
+              <div className="text-xs font-semibold text-emerald-900 mb-1.5">SKU 등록 (선택 — 정산자동화웹 검색)</div>
+              {!newPickedSku ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="예: 밤설기, 쑥콩설기, 두쫀모…"
+                    className="flex-1 text-sm border rounded px-2 py-1.5"
+                    value={newSkuQuery}
+                    onChange={(e) => setNewSkuQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") searchSkusForNew(); }}
+                  />
+                  <button
+                    type="button"
+                    onClick={searchSkusForNew}
+                    disabled={newSkuSearching}
+                    className="text-sm px-3 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {newSkuSearching ? "검색 중…" : "🔍"}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between bg-emerald-100 px-2 py-1.5 rounded text-xs">
+                  <span>
+                    선택됨: <b>{newPickedSku.product_name}</b>
+                    {" "}· 원가 {newPickedSku.cost.toLocaleString()}원
+                    {" "}· 택배 {newPickedSku.shipping_fee.toLocaleString()}원
+                  </span>
+                  <button
+                    type="button"
+                    className="text-red-600 hover:text-red-800 ml-2"
+                    onClick={() => { setNewPickedSku(null); setNewSkuPrice(""); setNewSkuQty(""); }}
+                    title="SKU 선택 해제"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+
+              {newSkuHits.length > 0 && !newPickedSku && (
+                <div className="mt-1 space-y-1 max-h-40 overflow-y-auto">
+                  {newSkuHits.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => { setNewPickedSku(s); setNewSkuHits([]); }}
+                      className="w-full text-left text-xs bg-white hover:bg-emerald-50 border rounded px-2 py-1.5 flex justify-between gap-2"
+                    >
+                      <span className="flex-1">{s.product_name}</span>
+                      <span className="text-gray-500">원가 {s.cost.toLocaleString()}원 · 택배 {s.shipping_fee.toLocaleString()}원</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {newPickedSku && (
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  <div>
+                    <label className="text-[11px] text-emerald-900 block mb-0.5">행사가 (원) *</label>
+                    <input
+                      type="number"
+                      placeholder="29900"
+                      className="w-full text-sm border rounded px-2 py-1.5"
+                      value={newSkuPrice}
+                      onChange={(e) => setNewSkuPrice(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-emerald-900 block mb-0.5">예상 수량</label>
+                    <input
+                      type="number"
+                      placeholder="100"
+                      className="w-full text-sm border rounded px-2 py-1.5"
+                      value={newSkuQty}
+                      onChange={(e) => setNewSkuQty(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-emerald-900 block mb-0.5">광고비 (원)</label>
+                    <input
+                      type="number"
+                      placeholder="0"
+                      className="w-full text-sm border rounded px-2 py-1.5"
+                      value={newAdSpend}
+                      onChange={(e) => setNewAdSpend(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="flex justify-end gap-2">
               <button className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50" onClick={() => setNewOpen(false)}>취소</button>
               <button className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50" disabled={busy !== null} onClick={createEvent}>

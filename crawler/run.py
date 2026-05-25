@@ -398,6 +398,55 @@ def cmd_reset(id_prefix: str) -> int:
     return 0
 
 
+def cmd_fee_rates(days: int) -> int:
+    """정산자동화웹 매출 데이터로 채널별 실효 수수료율 계산.
+
+    summary API 의 breakdown(채널×브랜드) 합산 후 fee/sale 비율 = 실효율.
+    이게 시뮬레이터/channels.yaml 의 default_fee_rate 진실의 원천.
+    """
+    from datetime import datetime, timedelta
+    from api.settle_client import SettleClient
+
+    end = datetime.now().strftime("%Y-%m-%d")
+    start = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    with SettleClient() as c:
+        data = c.summary(start=start, end=end)
+    br = data.get("breakdown", []) if isinstance(data, dict) else []
+
+    by: dict[str, dict] = {}
+    for row in br:
+        ch = row.get("channel") or "?"
+        if ch not in by:
+            by[ch] = {"sale": 0.0, "fee": 0.0, "orders": 0, "cost": 0.0, "shipping": 0.0}
+        by[ch]["sale"] += float(row.get("sale", 0) or 0)
+        by[ch]["fee"] += float(row.get("fee", 0) or 0)
+        by[ch]["cost"] += float(row.get("cost", 0) or 0)
+        by[ch]["shipping"] += float(row.get("shipping", 0) or 0)
+        by[ch]["orders"] += int(row.get("orders", 0) or 0)
+
+    print(f"\n=== 채널별 실효 수수료율 (최근 {days}일: {start} ~ {end}) ===\n")
+    print(f"{'채널':18s}  {'매출':>14s}  {'수수료':>12s}  {'실효율':>7s}  {'주문수':>7s}")
+    print("-" * 70)
+    rows_for_yaml: list[tuple[str, float]] = []
+    for ch, d in sorted(by.items(), key=lambda x: -x[1]["sale"]):
+        if d["sale"] > 0:
+            rate = d["fee"] / d["sale"]
+            print(
+                f"{ch:18s}  {int(d['sale']):>14,}  {int(d['fee']):>12,}  "
+                f"{rate * 100:>6.2f}%  {int(d['orders']):>7d}"
+            )
+            rows_for_yaml.append((ch, rate))
+        else:
+            print(f"{ch:18s}  (매출 없음)")
+    print()
+    if rows_for_yaml:
+        print("→ channels.yaml 의 default_fee_rate 값으로 사용할 실효율 (소수점):")
+        for ch, rate in rows_for_yaml:
+            print(f"   {ch}: {rate:.4f}")
+        print()
+    return 0
+
+
 def cmd_ad_spend(id_prefix: str, amount: int | None) -> int:
     """행사별 실제 광고비 입력. 0 또는 음수는 NULL 로 클리어."""
     with connect() as conn:
@@ -682,6 +731,9 @@ def main() -> None:
     pdl.add_argument("id_prefix")
     pdl.add_argument("--force", action="store_true", help="crawl 수집 행사도 강제 삭제 (다음 crawl 재수집)")
 
+    pfr = sp.add_parser("fee-rates", help="정산자동화웹 데이터로 채널별 실효 수수료율 계산")
+    pfr.add_argument("--days", type=int, default=90, help="분석 기간 (기본 90일)")
+
     pad_spend = sp.add_parser("ad-spend", help="행사별 실제 광고비 입력")
     pad_spend.add_argument("id_prefix")
     pad_spend.add_argument("amount", type=int, help="원 단위. 0 또는 음수면 클리어")
@@ -769,6 +821,8 @@ def main() -> None:
         sys.exit(cmd_delete(args.id_prefix, args.force))
     elif args.cmd == "update":
         sys.exit(cmd_update(args.id_prefix, args.title, args.deadline, args.category, args.url))
+    elif args.cmd == "fee-rates":
+        sys.exit(cmd_fee_rates(args.days))
     elif args.cmd == "ad-spend":
         sys.exit(cmd_ad_spend(args.id_prefix, args.amount))
     elif args.cmd == "contact-list":

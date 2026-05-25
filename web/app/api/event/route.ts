@@ -26,8 +26,11 @@ export async function POST(request: NextRequest) {
   if (body.sale_end) args.push("--end", body.sale_end);
   try {
     const { stdout } = await runCli(args);
+    // "✓ 수동 행사 등록: dab159 제목..." 에서 dedup_id 추출
+    const m = stdout.match(/등록:\s*([a-f0-9]{6,16})/);
+    const dedup_id = m ? m[1] : null;
     await refreshDump();
-    return NextResponse.json({ ok: true, stdout });
+    return NextResponse.json({ ok: true, stdout, dedup_id });
   } catch (e) {
     const err = e as Error & { stderr?: string };
     return NextResponse.json({ error: err.message, stderr: err.stderr }, { status: 500 });
