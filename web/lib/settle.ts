@@ -110,12 +110,24 @@ export interface DashboardTotals {
   qty?: number;
 }
 
+export interface DashboardBreakdownRow {
+  brand: string;
+  channel: string;
+  orders?: number;
+  qty?: number;
+  sale?: number;
+  cost?: number;
+  fee?: number;
+  operating_profit?: number;
+}
+
 export interface DashboardSummary {
   range: { start: string; end: string };
   filter: { brand: string | null; channel: string | null };
   kpi: { margin_rate?: number; net_margin_rate?: number; roas?: number; [k: string]: unknown };
   totals: DashboardTotals;
   prev_totals?: DashboardTotals;
+  breakdown?: DashboardBreakdownRow[];
 }
 
 /** 정산자동화웹 dashboard summary — 매출/원가/광고비 진실의 원천. */
@@ -171,4 +183,48 @@ export async function fetchBrandPL(): Promise<{ brand: string; data: DashboardSu
     })),
   );
   return [...results];
+}
+
+export interface ChannelAgg {
+  channel: string;
+  sale: number;
+  cost: number;
+  fee: number;
+  operating_profit: number;
+  orders: number;
+  qty: number;
+  margin_rate: number;
+}
+
+/** 조선팔도떡집의 이번 달 채널별 PL — summary 1회 호출 후 breakdown 집계.
+ *  주의: breakdown 에 광고비(ad_cost) 없음 → 채널별 광고비/순이익은 표시 불가.
+ *  광고비는 전체 totals 에서만 받음. */
+export async function fetchChannelPL(): Promise<{
+  totals: DashboardTotals | null;
+  range: { start: string; end: string } | null;
+  channels: ChannelAgg[];
+}> {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const today = `${y}-${m}-${String(now.getDate()).padStart(2, "0")}`;
+  const start = `${y}-${m}-01`;
+  const data = await fetchSummary({ start, end: today, brand: "조선팔도떡집" });
+  if (!data) return { totals: null, range: null, channels: [] };
+  const by: Record<string, ChannelAgg> = {};
+  for (const row of data.breakdown ?? []) {
+    const ch = row.channel || "?";
+    if (!by[ch]) by[ch] = { channel: ch, sale: 0, cost: 0, fee: 0, operating_profit: 0, orders: 0, qty: 0, margin_rate: 0 };
+    by[ch].sale += row.sale ?? 0;
+    by[ch].cost += row.cost ?? 0;
+    by[ch].fee += row.fee ?? 0;
+    by[ch].operating_profit += row.operating_profit ?? 0;
+    by[ch].orders += row.orders ?? 0;
+    by[ch].qty += row.qty ?? 0;
+  }
+  const channels = Object.values(by)
+    .filter((c) => c.sale > 0)
+    .map((c) => ({ ...c, margin_rate: c.sale ? (c.operating_profit / c.sale) * 100 : 0 }))
+    .sort((a, b) => b.sale - a.sale);
+  return { totals: data.totals, range: data.range, channels };
 }
