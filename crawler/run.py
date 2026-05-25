@@ -385,6 +385,88 @@ def cmd_sales(id_prefix: str, override_channels: list[str] | None, no_filter: bo
     return 0
 
 
+def cmd_attach_channel_totals(
+    id_prefix: str,
+    channel_name: str,
+    brand: str,
+    close: bool,
+) -> int:
+    """행사 진행기간의 채널 전체 매출(totals + top-products) 을 sales_json 에 attach.
+
+    SKU 매칭 없이 채널/브랜드 단위 매출을 그대로 기록.
+    "그날 채널 매출 = 전부 행사 매출" 인 케이스용 (전 SKU 행사가 일괄 적용 등).
+    """
+    import json as _json
+
+    from api.settle_client import SettleClient
+
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        if not (evt["sale_start"] and evt["sale_end"]):
+            print("ERROR: 진행기간이 없습니다. period 로 먼저 설정.", file=sys.stderr)
+            return 1
+        start = evt["sale_start"][:10]
+        end = evt["sale_end"][:10]
+
+        with SettleClient() as c:
+            summary = c.summary(start=start, end=end, brand=brand, channel=channel_name)
+            top = c.top_products(start=start, end=end, brand=brand, channel=channel_name)
+
+        totals = summary.get("totals") or {}
+        products = top if isinstance(top, list) else (top.get("items") if isinstance(top, dict) else [])
+
+        sale = int(totals.get("real_sale") or totals.get("sale_ezadmin") or 0)
+        cost = int(totals.get("cost") or 0)
+        fee = int(totals.get("fee") or 0)
+        shipping = int(totals.get("shipping") or 0)
+        op_profit = int(totals.get("operating_profit") or 0)
+        ad_cost = int(totals.get("ad_cost") or 0)
+        net_profit = int(totals.get("net_profit") or 0)
+        orders = int(totals.get("orders") or 0)
+        qty = int(totals.get("qty") or 0)
+
+        sales_payload = {
+            "totals": {
+                "sale": sale,
+                "cost": cost,
+                "fee": fee,
+                "shipping": shipping,
+                "operating_profit": op_profit,
+                "ad_cost": ad_cost,
+                "net_profit": net_profit,
+                "orders": orders,
+                "qty": qty,
+            },
+            "channels_used": [channel_name],
+            "matched": products,
+            "all_count": len(products),
+            "unmatched": [],
+            "note": f"채널 전체 매출 attach ({brand}/{channel_name} {start}~{end}) — SKU 매칭 생략",
+        }
+        set_event_sales(conn, evt["dedup_id"], sales_payload)
+        if close:
+            set_status(conn, evt["dedup_id"], "closed")
+
+    print(f"=== {evt['title'][:60]} ===")
+    print(f"  채널/기간:  {channel_name} / {start} ~ {end}")
+    print(f"  실 매출      {sale:>14,} 원   ({orders}주문 / {qty}개)")
+    print(f"  영업이익(전) {op_profit:>14,} 원   ({(op_profit/sale*100 if sale else 0):.1f}%)")
+    print(f"  광고비       {ad_cost:>14,} 원")
+    print(f"  순이익(후)   {net_profit:>14,} 원")
+    print(f"\n  top-products {len(products)}건:")
+    for p in products[:10]:
+        name = (p.get("product_name") or "")[:30]
+        sval = int(p.get("sale") or 0)
+        qval = int(p.get("qty") or 0)
+        print(f"    - {name:30s} {sval:>12,}원 ({qval}개)")
+    print(f"\n✓ events.{evt['dedup_id'][:6]} sales_json 저장" + (" + status=closed" if close else ""))
+    return 0
+
+
 def cmd_dump_json(out_path: str | None) -> int:
     """events 전체를 JSON 파일로 dump. Next.js 캘린더 화면이 이걸 읽음."""
     import json as _json
@@ -853,6 +935,12 @@ def main() -> None:
     pup.add_argument("--vendor", default=None)
     pup.add_argument("--vendor-contact", default=None)
 
+    patt = sp.add_parser("attach-channel-totals", help="행사 기간 채널 전체 매출을 sales_json 에 attach (SKU 매칭 생략)")
+    patt.add_argument("id_prefix")
+    patt.add_argument("--channel", required=True, help="정산자동화웹 채널명 (예: 쇼핑엔티)")
+    patt.add_argument("--brand", required=True, help="브랜드 (예: 조선팔도떡집)")
+    patt.add_argument("--close", action="store_true", help="저장 후 status=closed 처리")
+
     pad = sp.add_parser("add-event", help="수동 행사 등록 (MD 직접 연락 등 RSS에 안 뜨는 케이스)")
     pad.add_argument("channel_key", help="channels.yaml 의 key (예: coupang_wing)")
     pad.add_argument("title")
@@ -892,6 +980,8 @@ def main() -> None:
         sys.exit(cmd_sales(args.id_prefix, args.channel, args.all_channels))
     elif args.cmd == "sales-all":
         sys.exit(cmd_sales_all())
+    elif args.cmd == "attach-channel-totals":
+        sys.exit(cmd_attach_channel_totals(args.id_prefix, args.channel, args.brand, args.close))
     elif args.cmd == "add-event":
         sys.exit(cmd_add_event(
             args.channel_key, args.title, args.deadline, args.url, args.memo, args.category,
