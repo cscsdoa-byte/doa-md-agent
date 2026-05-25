@@ -42,6 +42,13 @@ export interface EventItem {
   sales_synced_at: string | null;
   source: string;
   ad_spend_manual: number | null;
+  // 노션 컬럼 매핑
+  event_type: string | null;          // 기획전 / 타임특가 / 오늘끝딜 등
+  discount_rate: number | null;       // 0.0 ~ 1.0
+  discount_burden: string | null;     // 도아 / 채널 / 분담
+  expected_revenue: number | null;
+  vendor_name: string | null;
+  vendor_contact: string | null;
   first_seen_at: string;
   last_seen_at: string;
 }

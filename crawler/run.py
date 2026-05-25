@@ -605,6 +605,12 @@ def cmd_add_event(
     category: str | None,
     sale_start: str | None = None,
     sale_end: str | None = None,
+    event_type: str | None = None,
+    discount_rate: float | None = None,
+    discount_burden: str | None = None,
+    expected_revenue: int | None = None,
+    vendor_name: str | None = None,
+    vendor_contact: str | None = None,
 ) -> int:
     """MD가 직접 받은 행사를 수동 등록 (RSS/공지에 안 뜨는 케이스)."""
     valid = {c["key"] for c in load_channels()}
@@ -620,6 +626,12 @@ def cmd_add_event(
             url=url,
             memo=memo,
             category=category,
+            event_type=event_type,
+            discount_rate=discount_rate,
+            discount_burden=discount_burden,
+            expected_revenue=expected_revenue,
+            vendor_name=vendor_name,
+            vendor_contact=vendor_contact,
         )
         if sale_start and sale_end:
             set_event_period(conn, dedup_id, sale_start, sale_end)
@@ -786,6 +798,12 @@ def main() -> None:
     pad.add_argument("--category", help="카테고리 (예: 신선, 푸드)")
     pad.add_argument("--start", help="진행기간 시작일 (YYYY-MM-DD)")
     pad.add_argument("--end", help="진행기간 종료일 (YYYY-MM-DD)")
+    pad.add_argument("--event-type", default=None, help="행사유형 (기획전/타임특가/오늘끝딜 등)")
+    pad.add_argument("--discount", type=float, default=None, help="할인율 (0.0 ~ 1.0)")
+    pad.add_argument("--burden", default=None, help="할인부담주체 (도아/채널/분담)")
+    pad.add_argument("--expected", type=int, default=None, help="예상 매출 (원)")
+    pad.add_argument("--vendor", default=None, help="업체명 (벤더사)")
+    pad.add_argument("--vendor-contact", default=None, help="업체 연락처")
 
     args = p.parse_args()
     if args.cmd is None or args.cmd == "crawl":
@@ -812,6 +830,9 @@ def main() -> None:
         sys.exit(cmd_add_event(
             args.channel_key, args.title, args.deadline, args.url, args.memo, args.category,
             sale_start=args.start, sale_end=args.end,
+            event_type=args.event_type, discount_rate=args.discount,
+            discount_burden=args.burden, expected_revenue=args.expected,
+            vendor_name=args.vendor, vendor_contact=args.vendor_contact,
         ))
     elif args.cmd == "dump-json":
         sys.exit(cmd_dump_json(args.out))

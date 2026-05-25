@@ -204,19 +204,37 @@ def import_events(dry: bool) -> int:
                         ch_key = yk
                         break
             category = (r.get("카테고리") or "").strip() or None
-            memo_parts: list[str] = []
-            for k in ("메모", "행사유형", "할인부담주체", "할인율(%)", "예상매출(원)", "업체명", "업체연락처", "마진율(%)"):
-                v = (r.get(k) or "").strip()
-                if v:
-                    memo_parts.append(f"{k}: {v}")
-            memo = " | ".join(memo_parts) or None
+            memo = (r.get("메모") or "").strip() or None
+            event_type = (r.get("행사유형") or "").strip() or None
+            disc_str = (r.get("할인율(%)") or "").strip()
+            try:
+                discount_rate = float(disc_str) / 100 if disc_str else None
+            except ValueError:
+                discount_rate = None
+            discount_burden = (r.get("할인부담주체") or "").strip() or None
+            exp_str = (r.get("예상매출(원)") or "").strip().replace(",", "").replace("원", "")
+            try:
+                expected_revenue = int(exp_str) if exp_str else None
+            except ValueError:
+                expected_revenue = None
+            vendor_name = (r.get("업체명") or "").strip() or None
+            vendor_contact = (r.get("업체연락처") or "").strip() or None
             url = (r.get("출처 URL") or "").strip() or None
             deadline = _parse_date_kr(r.get("신청마감일") or "")
-            print(f"  + {title[:50]:50s} ch={ch_key:18s} date={date_iso} deadline={deadline}")
+            print(
+                f"  + {title[:46]:46s} ch={ch_key:18s} date={date_iso} "
+                f"type={event_type or '-':10s} disc={(discount_rate or 0) * 100:>4.0f}%"
+            )
             if not dry:
                 dedup = add_manual_event(
                     conn, channel_key=ch_key, title=title,
                     deadline=deadline, url=url, memo=memo, category=category,
+                    event_type=event_type,
+                    discount_rate=discount_rate,
+                    discount_burden=discount_burden,
+                    expected_revenue=expected_revenue,
+                    vendor_name=vendor_name,
+                    vendor_contact=vendor_contact,
                 )
                 # 기간이 단일 날짜면 sale_start=sale_end
                 if date_iso:

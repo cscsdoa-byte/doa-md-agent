@@ -116,6 +116,13 @@ export default function Calendar({
   const [newMemo, setNewMemo] = useState("");
   const [newSaleStart, setNewSaleStart] = useState("");
   const [newSaleEnd, setNewSaleEnd] = useState("");
+  // 노션 매핑 필드
+  const [newEventType, setNewEventType] = useState("");
+  const [newDiscount, setNewDiscount] = useState("");
+  const [newBurden, setNewBurden] = useState("");
+  const [newExpected, setNewExpected] = useState("");
+  const [newVendor, setNewVendor] = useState("");
+  const [newVendorContact, setNewVendorContact] = useState("");
   // SKU 자동 등록 (정산자동화웹 검색)
   const [newSkuQuery, setNewSkuQuery] = useState("");
   const [newSkuHits, setNewSkuHits] = useState<{ id: number; product_name: string; cost: number; shipping_fee: number }[]>([]);
@@ -315,6 +322,12 @@ export default function Calendar({
           memo: newMemo || undefined,
           sale_start: newSaleStart || undefined,
           sale_end: newSaleEnd || undefined,
+          event_type: newEventType || undefined,
+          discount_rate: newDiscount ? parseFloat(newDiscount) / 100 : undefined,
+          discount_burden: newBurden || undefined,
+          expected_revenue: newExpected ? parseInt(newExpected, 10) : undefined,
+          vendor_name: newVendor || undefined,
+          vendor_contact: newVendorContact || undefined,
         }),
       });
       const j = await r.json();
@@ -352,6 +365,8 @@ export default function Calendar({
       setNewSaleStart(""); setNewSaleEnd("");
       setNewSkuQuery(""); setNewSkuHits([]); setNewPickedSku(null);
       setNewSkuPrice(""); setNewSkuQty(""); setNewAdSpend("");
+      setNewEventType(""); setNewDiscount(""); setNewBurden("");
+      setNewExpected(""); setNewVendor(""); setNewVendorContact("");
       setNewOpen(false);
       startTransition(() => router.refresh());
     } catch (e) {
@@ -457,11 +472,18 @@ export default function Calendar({
             )}
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-xs text-emerald-900 block mb-1">판매채널 *</label>
+                <label className="text-xs text-emerald-900 block mb-1">채널 *</label>
                 <select className="w-full text-sm border rounded px-2 py-1.5" value={newCh} onChange={(e) => setNewCh(e.target.value)}>
-                  {salesChannels.map((c) => (
-                    <option key={c.key} value={c.key}>{c.name}</option>
-                  ))}
+                  <optgroup label="── 운영 중 (판매채널) ──">
+                    {channels.filter((c) => c.is_sales).map((c) => (
+                      <option key={c.key} value={c.key}>{c.name}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="── 정보채널 / 미입점 ──">
+                    {channels.filter((c) => !c.is_sales).map((c) => (
+                      <option key={c.key} value={c.key}>{c.name}</option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
               <div>
@@ -485,7 +507,57 @@ export default function Calendar({
                 <input type="date" className="w-full text-sm border rounded px-2 py-1.5" value={newSaleEnd} onChange={(e) => setNewSaleEnd(e.target.value)} />
               </div>
             </div>
-            <textarea placeholder="메모 (MD 이름, 통화 내용, 행사 조건 등)" rows={2} className="w-full text-sm border rounded px-2 py-1.5" value={newMemo} onChange={(e) => setNewMemo(e.target.value)} />
+            {/* 노션 매핑 — 행사 상세 */}
+            <div className="border-t border-emerald-200 pt-2 mt-2">
+              <div className="text-xs font-semibold text-emerald-900 mb-1.5">행사 상세 (선택)</div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[11px] text-emerald-900 block mb-0.5">행사유형</label>
+                  <select className="w-full text-sm border rounded px-2 py-1.5" value={newEventType} onChange={(e) => setNewEventType(e.target.value)}>
+                    <option value="">— 선택 —</option>
+                    <option>기획전</option>
+                    <option>오늘끝딜</option>
+                    <option>타임특가</option>
+                    <option>하루특가</option>
+                    <option>톡딜</option>
+                    <option>특가왕</option>
+                    <option>메인구좌</option>
+                    <option>라이브</option>
+                    <option>푸드페스타</option>
+                    <option>한입발견회</option>
+                    <option>기타</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] text-emerald-900 block mb-0.5">할인율 (%)</label>
+                  <input type="number" placeholder="10" className="w-full text-sm border rounded px-2 py-1.5" value={newDiscount} onChange={(e) => setNewDiscount(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-[11px] text-emerald-900 block mb-0.5">할인부담주체</label>
+                  <select className="w-full text-sm border rounded px-2 py-1.5" value={newBurden} onChange={(e) => setNewBurden(e.target.value)}>
+                    <option value="">— 선택 —</option>
+                    <option>도아</option>
+                    <option>채널</option>
+                    <option>분담</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] text-emerald-900 block mb-0.5">예상매출 (원)</label>
+                  <input type="number" placeholder="1000000" className="w-full text-sm border rounded px-2 py-1.5" value={newExpected} onChange={(e) => setNewExpected(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-[11px] text-emerald-900 block mb-0.5">업체명 (벤더사)</label>
+                  <input type="text" placeholder="예: ㅇㅇ유통" className="w-full text-sm border rounded px-2 py-1.5" value={newVendor} onChange={(e) => setNewVendor(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-[11px] text-emerald-900 block mb-0.5">업체 연락처</label>
+                  <input type="text" placeholder="010-..." className="w-full text-sm border rounded px-2 py-1.5" value={newVendorContact} onChange={(e) => setNewVendorContact(e.target.value)} />
+                </div>
+              </div>
+            </div>
+
+            <label className="text-xs text-emerald-900 block mb-0.5 mt-2">메모 / 코멘트</label>
+            <textarea placeholder="메모 (MD 이름, 통화 내용, 행사 조건, 추가 코멘트 등)" rows={3} className="w-full text-sm border rounded px-2 py-1.5" value={newMemo} onChange={(e) => setNewMemo(e.target.value)} />
 
             {/* SKU 자동 등록 (선택 사항) */}
             <div className="border-t border-emerald-200 pt-2 mt-2">
@@ -756,8 +828,20 @@ export default function Calendar({
             <h3 className="text-base font-semibold leading-snug">{selected.title}</h3>
             <div className="text-xs text-gray-600 space-y-0.5">
               <div>채널: <b>[{themeOf(selected.channel_key).abbr}] {themeOf(selected.channel_key).label}</b></div>
+              {selected.event_type && <div>행사유형: <b className="text-indigo-700">{selected.event_type}</b></div>}
               {selected.category && <div>카테고리: {selected.category}</div>}
               {selected.deadline_at && <div>마감: {selected.deadline_at.replace("T", " ").slice(0, 16)}</div>}
+              {selected.discount_rate != null && (
+                <div>할인율: <b>{(selected.discount_rate * 100).toFixed(0)}%</b>
+                  {selected.discount_burden && <span className="text-gray-500"> · 부담: {selected.discount_burden}</span>}
+                </div>
+              )}
+              {selected.expected_revenue != null && (
+                <div>예상매출: <b className="text-emerald-700">{selected.expected_revenue.toLocaleString()}원</b></div>
+              )}
+              {(selected.vendor_name || selected.vendor_contact) && (
+                <div>업체: {selected.vendor_name ?? "-"}{selected.vendor_contact && <span className="text-gray-500"> · {selected.vendor_contact}</span>}</div>
+              )}
             </div>
 
             {(() => {

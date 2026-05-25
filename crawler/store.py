@@ -83,6 +83,19 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # 사용자가 행사별로 직접 입력하는 실제 광고비.
         # top-products.ad_spend 는 전 채널 합산이라 부정확 — 이걸 사용.
         conn.execute("ALTER TABLE events ADD COLUMN ad_spend_manual INTEGER")
+    # 노션 컬럼 매핑 — 행사유형/할인/예상매출/벤더정보
+    if "event_type" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN event_type TEXT")  # 기획전/타임특가/오늘끝딜 등
+    if "discount_rate" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN discount_rate REAL")  # 0.0 ~ 1.0
+    if "discount_burden" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN discount_burden TEXT")  # "도아"/"채널"/"분담"
+    if "expected_revenue" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN expected_revenue INTEGER")  # 원
+    if "vendor_name" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN vendor_name TEXT")
+    if "vendor_contact" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN vendor_contact TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_status ON events(status)")
 
     # MD 연락처 마스터 — 채널별 담당 MD 정보. 한 번 입력해두면 다음 행사 잡을 때 또 씀.
@@ -508,6 +521,12 @@ def add_manual_event(
     url: str | None = None,
     memo: str | None = None,
     category: str | None = None,
+    event_type: str | None = None,
+    discount_rate: float | None = None,
+    discount_burden: str | None = None,
+    expected_revenue: int | None = None,
+    vendor_name: str | None = None,
+    vendor_contact: str | None = None,
 ) -> str:
     """MD가 직접 받은 행사 등록 (RSS/공지에 안 뜨는 케이스).
 
@@ -528,11 +547,16 @@ def add_manual_event(
         """INSERT OR REPLACE INTO events (
             dedup_id, channel_key, title, url, posted_at, deadline_at,
             category, is_doa_fit, raw_text, extra_json,
-            first_seen_at, last_seen_at, status, memo, source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?, ?, 'reviewing', ?, 'manual')""",
+            first_seen_at, last_seen_at, status, memo, source,
+            event_type, discount_rate, discount_burden, expected_revenue,
+            vendor_name, vendor_contact
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?, ?, 'reviewing', ?, 'manual',
+                  ?, ?, ?, ?, ?, ?)""",
         (
             dedup_id, channel_key, title, url, now, deadline_iso,
             category, json.dumps({"manual": True}), now, now, memo,
+            event_type, discount_rate, discount_burden, expected_revenue,
+            vendor_name, vendor_contact,
         ),
     )
     return dedup_id
