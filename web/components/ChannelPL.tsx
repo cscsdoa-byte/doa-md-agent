@@ -9,7 +9,11 @@ interface Props {
   events: EventItem[];
 }
 
-const ACTIVE_STATUSES = new Set(["new", "reviewing", "applied", "selected", "running"]);
+// "실제로 MD가 진행한/진행 중인 행사" 만 카운트.
+// new/reviewing = 아직 결정 안 된 RSS 안내문 → 제외.
+// skip = 패스한 행사 → 제외.
+// 추가로 sale_start 채워진 행사만 (= 기간 설정된 진짜 행사) 카운트.
+const COUNTED_STATUSES = new Set(["applied", "selected", "running", "closed"]);
 
 function fmt(n: number | undefined | null): string {
   if (n === undefined || n === null) return "-";
@@ -42,14 +46,21 @@ export default function ChannelPL({ totals, range, channels, events }: Props) {
     );
   }
 
-  // events 의 channel_key 기준 active 행사 카운트
+  // events 의 channel_key 기준 행사 카운트 + 행사 매출 합산
   const eventCountByKey: Record<string, number> = {};
   const runningCountByKey: Record<string, number> = {};
+  const eventSaleByKey: Record<string, number> = {};
   for (const e of events) {
-    if (!ACTIVE_STATUSES.has(e.status)) continue;
+    if (!COUNTED_STATUSES.has(e.status)) continue;
+    if (!e.sale_start || !e.sale_end) continue;
     eventCountByKey[e.channel_key] = (eventCountByKey[e.channel_key] || 0) + 1;
     if (e.status === "running") {
       runningCountByKey[e.channel_key] = (runningCountByKey[e.channel_key] || 0) + 1;
+    }
+    // sales_json.totals.sale 가 있으면 행사 매출로 합산
+    const eventSale = e.sales?.totals?.sale;
+    if (typeof eventSale === "number" && eventSale > 0) {
+      eventSaleByKey[e.channel_key] = (eventSaleByKey[e.channel_key] || 0) + eventSale;
     }
   }
 
@@ -124,6 +135,8 @@ export default function ChannelPL({ totals, range, channels, events }: Props) {
               const th = themeOf(themeKey);
               const count = eventCountByKey[themeKey] || 0;
               const running = runningCountByKey[themeKey] || 0;
+              const eventSale = eventSaleByKey[themeKey] || 0;
+              const eventShare = c.sale > 0 ? (eventSale / c.sale) * 100 : 0;
               return (
                 <div key={c.channel} className="bg-amber-50 border-2 border-amber-400 rounded p-3">
                   <div className="flex items-center justify-between mb-1">
@@ -136,7 +149,13 @@ export default function ChannelPL({ totals, range, channels, events }: Props) {
                     </span>
                   </div>
                   <div className="text-xs space-y-0.5">
-                    <div>매출 <b>{fmt(c.sale)}</b>원</div>
+                    <div className="text-slate-500">이번 달 매출 <b className="text-slate-700">{fmt(c.sale)}</b>원</div>
+                    {eventSale > 0 && (
+                      <div className="bg-amber-100 rounded px-1.5 py-0.5 -mx-0.5">
+                        🎯 행사 매출 <b className="text-amber-900">{fmt(eventSale)}</b>원
+                        <span className="text-[10px] text-amber-700 ml-1">({eventShare.toFixed(0)}%)</span>
+                      </div>
+                    )}
                     <div>영업이익 <b className="text-emerald-700">{fmt(c.operating_profit)}</b>원</div>
                     <div>마진율 <b>{c.margin_rate.toFixed(1)}%</b></div>
                     <div className="text-[10px] text-slate-500 mt-0.5">주문 {fmt(c.orders)} · 수량 {fmt(c.qty)}</div>
