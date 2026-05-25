@@ -14,6 +14,13 @@ interface PatchBody {
   category?: string;
   // 광고비
   ad_spend?: number;
+  // 노션 매핑 필드
+  event_type?: string;
+  discount_rate?: number;
+  discount_burden?: string;
+  expected_revenue?: number;
+  vendor_name?: string;
+  vendor_contact?: string;
 }
 
 export async function PATCH(
@@ -47,6 +54,12 @@ export async function PATCH(
     if (body.title !== undefined) updateArgs.push("--title", body.title);
     if (body.deadline !== undefined) updateArgs.push("--deadline", body.deadline);
     if (body.category !== undefined) updateArgs.push("--category", body.category);
+    if (body.event_type !== undefined) updateArgs.push("--event-type", body.event_type);
+    if (body.discount_rate !== undefined) updateArgs.push("--discount", String(body.discount_rate));
+    if (body.discount_burden !== undefined) updateArgs.push("--burden", body.discount_burden);
+    if (body.expected_revenue !== undefined) updateArgs.push("--expected", String(body.expected_revenue));
+    if (body.vendor_name !== undefined) updateArgs.push("--vendor", body.vendor_name);
+    if (body.vendor_contact !== undefined) updateArgs.push("--vendor-contact", body.vendor_contact);
     if (updateArgs.length > 2) {
       await runCli(updateArgs);
     }

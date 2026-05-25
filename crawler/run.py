@@ -560,8 +560,14 @@ def cmd_update(
     deadline: str | None,
     category: str | None,
     url: str | None,
+    event_type: str | None = None,
+    discount_rate: float | None = None,
+    discount_burden: str | None = None,
+    expected_revenue: int | None = None,
+    vendor_name: str | None = None,
+    vendor_contact: str | None = None,
 ) -> int:
-    """행사 본문 필드 수정 (제목/마감/카테고리/URL)."""
+    """행사 본문 필드 수정 (제목/마감/카테고리/URL/행사유형/할인/예상매출/업체)."""
     with connect() as conn:
         try:
             evt = resolve_event(conn, id_prefix)
@@ -571,6 +577,9 @@ def cmd_update(
         update_event_fields(
             conn, evt["dedup_id"],
             title=title, deadline=deadline, category=category, url=url,
+            event_type=event_type, discount_rate=discount_rate,
+            discount_burden=discount_burden, expected_revenue=expected_revenue,
+            vendor_name=vendor_name, vendor_contact=vendor_contact,
         )
         print(f"✓ {evt['dedup_id'][:6]} 수정 완료")
     return 0
@@ -782,12 +791,18 @@ def main() -> None:
     ptd = sp.add_parser("template-del", help="템플릿 삭제")
     ptd.add_argument("template_id", type=int)
 
-    pup = sp.add_parser("update", help="행사 본문 수정 (제목/마감/카테고리/URL)")
+    pup = sp.add_parser("update", help="행사 본문 수정 (제목/마감/카테고리/URL/행사유형/할인/예상매출/업체)")
     pup.add_argument("id_prefix")
     pup.add_argument("--title", default=None)
     pup.add_argument("--deadline", default=None, help="YYYY-MM-DD (빈 문자열은 클리어)")
     pup.add_argument("--category", default=None)
     pup.add_argument("--url", default=None)
+    pup.add_argument("--event-type", default=None)
+    pup.add_argument("--discount", type=float, default=None, help="할인율 (0.0 ~ 1.0)")
+    pup.add_argument("--burden", default=None)
+    pup.add_argument("--expected", type=int, default=None)
+    pup.add_argument("--vendor", default=None)
+    pup.add_argument("--vendor-contact", default=None)
 
     pad = sp.add_parser("add-event", help="수동 행사 등록 (MD 직접 연락 등 RSS에 안 뜨는 케이스)")
     pad.add_argument("channel_key", help="channels.yaml 의 key (예: coupang_wing)")
@@ -841,7 +856,12 @@ def main() -> None:
     elif args.cmd == "delete":
         sys.exit(cmd_delete(args.id_prefix, args.force))
     elif args.cmd == "update":
-        sys.exit(cmd_update(args.id_prefix, args.title, args.deadline, args.category, args.url))
+        sys.exit(cmd_update(
+            args.id_prefix, args.title, args.deadline, args.category, args.url,
+            event_type=args.event_type, discount_rate=args.discount,
+            discount_burden=args.burden, expected_revenue=args.expected,
+            vendor_name=args.vendor, vendor_contact=args.vendor_contact,
+        ))
     elif args.cmd == "fee-rates":
         sys.exit(cmd_fee_rates(args.days))
     elif args.cmd == "ad-spend":

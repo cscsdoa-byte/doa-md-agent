@@ -102,7 +102,31 @@ export default function Calendar({
   const [editTitle, setEditTitle] = useState("");
   const [editDeadline, setEditDeadline] = useState("");
   const [editCategory, setEditCategory] = useState("");
+  const [editEventType, setEditEventType] = useState("");
+  const [editDiscount, setEditDiscount] = useState("");
+  const [editBurden, setEditBurden] = useState("");
+  const [editExpected, setEditExpected] = useState("");
+  const [editVendor, setEditVendor] = useState("");
+  const [editVendorContact, setEditVendorContact] = useState("");
   const [showEdit, setShowEdit] = useState(false);
+  // SKU 검색 (우측 패널)
+  const [skuQuery, setSkuQuery] = useState("");
+  const [skuHits, setSkuHits] = useState<{ id: number; product_name: string; cost: number; shipping_fee: number }[]>([]);
+  const [skuSearching, setSkuSearching] = useState(false);
+
+  async function searchSkusRight() {
+    if (!skuQuery.trim()) { setSkuHits([]); return; }
+    setSkuSearching(true);
+    try {
+      const r = await fetch(apiUrl(`/api/skus?q=${encodeURIComponent(skuQuery)}&limit=15`));
+      const j = await r.json();
+      setSkuHits(j.items || []);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSkuSearching(false);
+    }
+  }
   // 광고비 draft
   const [adSpendDraft, setAdSpendDraft] = useState("");
 
@@ -221,8 +245,15 @@ export default function Calendar({
       setEditTitle(selected.title);
       setEditDeadline(selected.deadline_at ? selected.deadline_at.slice(0, 10) : "");
       setEditCategory(selected.category ?? "");
+      setEditEventType(selected.event_type ?? "");
+      setEditDiscount(selected.discount_rate != null ? String(selected.discount_rate * 100) : "");
+      setEditBurden(selected.discount_burden ?? "");
+      setEditExpected(selected.expected_revenue != null ? String(selected.expected_revenue) : "");
+      setEditVendor(selected.vendor_name ?? "");
+      setEditVendorContact(selected.vendor_contact ?? "");
       setShowEdit(false);
       setAdSpendDraft(selected.ad_spend_manual ? String(selected.ad_spend_manual) : "");
+      setSkuQuery(""); setSkuHits([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
@@ -239,6 +270,12 @@ export default function Calendar({
       title: editTitle,
       deadline: editDeadline,
       category: editCategory,
+      event_type: editEventType,
+      discount_rate: editDiscount ? parseFloat(editDiscount) / 100 : -1,  // -1 = clear
+      discount_burden: editBurden,
+      expected_revenue: editExpected ? parseInt(editExpected, 10) : 0,    // 0 = clear
+      vendor_name: editVendor,
+      vendor_contact: editVendorContact,
     });
     setShowEdit(false);
   }
@@ -929,17 +966,52 @@ export default function Calendar({
                   );
                 })}
               </div>
-              <div className="grid grid-cols-3 gap-1">
-                <input type="number" placeholder="SKU id" className="text-xs border rounded px-2 py-1" value={skuId} onChange={(e) => setSkuId(e.target.value)} />
-                <input type="number" placeholder="행사가" className="text-xs border rounded px-2 py-1" value={skuPrice} onChange={(e) => setSkuPrice(e.target.value)} />
+              {/* SKU 이름으로 검색 */}
+              <div className="flex gap-1">
+                <input
+                  type="text"
+                  placeholder="SKU 이름 검색 (예: 밤설기, 두쫀모)"
+                  className="flex-1 text-xs border rounded px-2 py-1"
+                  value={skuQuery}
+                  onChange={(e) => setSkuQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") searchSkusRight(); }}
+                />
+                <button
+                  type="button"
+                  className="text-xs px-2 py-1 bg-violet-100 text-violet-700 rounded hover:bg-violet-200 disabled:opacity-50"
+                  disabled={skuSearching}
+                  onClick={searchSkusRight}
+                >
+                  {skuSearching ? "…" : "🔍"}
+                </button>
+              </div>
+              {skuHits.length > 0 && (
+                <div className="mt-1 space-y-0.5 max-h-32 overflow-y-auto">
+                  {skuHits.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => { setSkuId(String(s.id)); setSkuHits([]); setSkuQuery(s.product_name); }}
+                      className="w-full text-left text-[11px] bg-white hover:bg-violet-50 border rounded px-2 py-1"
+                    >
+                      <b>{s.product_name}</b>
+                      <span className="text-gray-500 ml-1">· 원가 {s.cost.toLocaleString()}원 · 택배 {s.shipping_fee.toLocaleString()}원</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {skuId && (
+                <div className="text-[11px] text-violet-700 mt-1">선택된 SKU id: <b>{skuId}</b></div>
+              )}
+              <div className="grid grid-cols-2 gap-1 mt-1">
+                <input type="number" placeholder="행사가 (원)" className="text-xs border rounded px-2 py-1" value={skuPrice} onChange={(e) => setSkuPrice(e.target.value)} />
                 <input type="number" placeholder="수량" className="text-xs border rounded px-2 py-1" value={skuQty} onChange={(e) => setSkuQty(e.target.value)} />
               </div>
               <div className="flex justify-end mt-1">
-                <button className="text-xs px-2 py-1 bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50" disabled={busy !== null} onClick={addSku}>
+                <button className="text-xs px-2 py-1 bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50" disabled={busy !== null || !skuId} onClick={addSku}>
                   {busy === "register" ? "등록 중…" : "SKU 추가"}
                 </button>
               </div>
-              <div className="text-[10px] text-gray-400 mt-1">SKU id 모를 땐 PowerShell에서 <code>uv run python -m api.margin_cli search &lt;이름&gt;</code></div>
             </div>
 
             {/* 매출 매칭 */}
@@ -1075,21 +1147,53 @@ export default function Calendar({
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-[11px] text-gray-600 block mb-0.5">마감일</label>
-                      <input
-                        type="date"
-                        className="w-full text-sm border rounded px-2 py-1.5"
-                        value={editDeadline}
-                        onChange={(e) => setEditDeadline(e.target.value)}
-                      />
+                      <input type="date" className="w-full text-sm border rounded px-2 py-1.5" value={editDeadline} onChange={(e) => setEditDeadline(e.target.value)} />
                     </div>
                     <div>
                       <label className="text-[11px] text-gray-600 block mb-0.5">카테고리</label>
-                      <input
-                        type="text"
-                        className="w-full text-sm border rounded px-2 py-1.5"
-                        value={editCategory}
-                        onChange={(e) => setEditCategory(e.target.value)}
-                      />
+                      <input type="text" className="w-full text-sm border rounded px-2 py-1.5" value={editCategory} onChange={(e) => setEditCategory(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-gray-600 block mb-0.5">행사유형</label>
+                      <select className="w-full text-sm border rounded px-2 py-1.5" value={editEventType} onChange={(e) => setEditEventType(e.target.value)}>
+                        <option value="">—</option>
+                        <option>기획전</option>
+                        <option>오늘끝딜</option>
+                        <option>타임특가</option>
+                        <option>하루특가</option>
+                        <option>톡딜</option>
+                        <option>특가왕</option>
+                        <option>메인구좌</option>
+                        <option>라이브</option>
+                        <option>푸드페스타</option>
+                        <option>한입발견회</option>
+                        <option>기타</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-gray-600 block mb-0.5">할인율 (%)</label>
+                      <input type="number" placeholder="예: 10" className="w-full text-sm border rounded px-2 py-1.5" value={editDiscount} onChange={(e) => setEditDiscount(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-gray-600 block mb-0.5">할인부담주체</label>
+                      <select className="w-full text-sm border rounded px-2 py-1.5" value={editBurden} onChange={(e) => setEditBurden(e.target.value)}>
+                        <option value="">—</option>
+                        <option>도아</option>
+                        <option>채널</option>
+                        <option>분담</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-gray-600 block mb-0.5">예상매출 (원)</label>
+                      <input type="number" placeholder="1000000" className="w-full text-sm border rounded px-2 py-1.5" value={editExpected} onChange={(e) => setEditExpected(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-gray-600 block mb-0.5">업체명</label>
+                      <input type="text" placeholder="ㅇㅇ유통" className="w-full text-sm border rounded px-2 py-1.5" value={editVendor} onChange={(e) => setEditVendor(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-gray-600 block mb-0.5">업체 연락처</label>
+                      <input type="text" placeholder="010-..." className="w-full text-sm border rounded px-2 py-1.5" value={editVendorContact} onChange={(e) => setEditVendorContact(e.target.value)} />
                     </div>
                   </div>
                   {selected.source !== "manual" && (

@@ -417,6 +417,12 @@ def update_event_fields(
     deadline: str | None = None,
     category: str | None = None,
     url: str | None = None,
+    event_type: str | None = None,
+    discount_rate: float | None = None,
+    discount_burden: str | None = None,
+    expected_revenue: int | None = None,
+    vendor_name: str | None = None,
+    vendor_contact: str | None = None,
 ) -> None:
     """행사 본문 필드 직접 수정. 주로 수동 등록 행사 수정용.
 
@@ -446,6 +452,25 @@ def update_event_fields(
     if url is not None and url != "":
         fields.append("url = ?")
         params.append(url)
+    # 노션 매핑 필드
+    for col, val in (
+        ("event_type", event_type),
+        ("discount_burden", discount_burden),
+        ("vendor_name", vendor_name),
+        ("vendor_contact", vendor_contact),
+    ):
+        if val is not None:
+            if val == "":
+                fields.append(f"{col} = NULL")
+            else:
+                fields.append(f"{col} = ?")
+                params.append(val)
+    if discount_rate is not None:
+        fields.append("discount_rate = ?")
+        params.append(discount_rate if discount_rate >= 0 else None)
+    if expected_revenue is not None:
+        fields.append("expected_revenue = ?")
+        params.append(expected_revenue if expected_revenue > 0 else None)
     if not fields:
         return
     params.append(dedup_id)
