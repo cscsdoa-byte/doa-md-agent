@@ -60,6 +60,7 @@ export default async function Home() {
           totals={channelPL.totals}
           range={channelPL.range}
           channels={channelPL.channels}
+          events={payload.events}
         />
 
         <Calendar

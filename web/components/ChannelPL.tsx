@@ -1,11 +1,15 @@
 import type { ChannelAgg, DashboardTotals } from "@/lib/settle";
+import type { EventItem } from "@/lib/data";
 import { themeOf } from "@/lib/channelTheme";
 
 interface Props {
   totals: DashboardTotals | null;
   range: { start: string; end: string } | null;
   channels: ChannelAgg[];
+  events: EventItem[];
 }
+
+const ACTIVE_STATUSES = new Set(["new", "reviewing", "applied", "selected", "running"]);
 
 function fmt(n: number | undefined | null): string {
   if (n === undefined || n === null) return "-";
@@ -29,13 +33,44 @@ const CHANNEL_TO_KEY: Record<string, string> = {
   전화주문: "phone",
 };
 
-export default function ChannelPL({ totals, range, channels }: Props) {
+export default function ChannelPL({ totals, range, channels, events }: Props) {
   if (!totals && channels.length === 0) {
     return (
       <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded px-3 py-2">
         ⚠️ 정산자동화웹 호출 실패 또는 매출 없음.
       </div>
     );
+  }
+
+  // events 의 channel_key 기준 active 행사 카운트
+  const eventCountByKey: Record<string, number> = {};
+  const runningCountByKey: Record<string, number> = {};
+  for (const e of events) {
+    if (!ACTIVE_STATUSES.has(e.status)) continue;
+    eventCountByKey[e.channel_key] = (eventCountByKey[e.channel_key] || 0) + 1;
+    if (e.status === "running") {
+      runningCountByKey[e.channel_key] = (runningCountByKey[e.channel_key] || 0) + 1;
+    }
+  }
+
+  // 채널을 "행사 있는" / "행사 없는" 으로 분리 후 매출 순 정렬
+  const withEvents: typeof channels = [];
+  const withoutEvents: typeof channels = [];
+  for (const c of channels) {
+    const key = CHANNEL_TO_KEY[c.channel];
+    if (key && (eventCountByKey[key] ?? 0) > 0) {
+      withEvents.push(c);
+    } else {
+      withoutEvents.push(c);
+    }
+  }
+  // 매출 발생은 없지만 행사는 있는 채널 추가 (정산자동화웹에 없는 매출 + events에만 있는 케이스)
+  const channelKeysWithSales = new Set(channels.map((c) => CHANNEL_TO_KEY[c.channel]).filter(Boolean));
+  const phantomEventChannels: { channel_key: string; count: number; running: number }[] = [];
+  for (const [key, count] of Object.entries(eventCountByKey)) {
+    if (!channelKeysWithSales.has(key)) {
+      phantomEventChannels.push({ channel_key: key, count, running: runningCountByKey[key] || 0 });
+    }
   }
 
   const totalSale = totals?.real_sale ?? totals?.sale_ezadmin ?? 0;
@@ -77,21 +112,28 @@ export default function ChannelPL({ totals, range, channels }: Props) {
         </div>
       </div>
 
-      {/* 2) 채널별 카드 (행사 들어가는 = 매출 발생 중인 채널만) */}
-      {channels.length > 0 && (
+      {/* 2-A) 행사 들어간 채널 (강조) */}
+      {(withEvents.length > 0 || phantomEventChannels.length > 0) && (
         <div>
           <div className="text-sm font-semibold text-slate-700 mb-2">
-            🛒 채널별 매출 ({channels.length}개 채널, 매출 발생 순)
+            🎯 행사 진행 채널 ({withEvents.length + phantomEventChannels.length}개)
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-            {channels.map((c) => {
+            {withEvents.map((c) => {
               const themeKey = CHANNEL_TO_KEY[c.channel] || "?";
               const th = themeOf(themeKey);
+              const count = eventCountByKey[themeKey] || 0;
+              const running = runningCountByKey[themeKey] || 0;
               return (
-                <div key={c.channel} className="bg-white border rounded p-3">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className={`font-mono font-extrabold text-xs ${th.bold}`}>{th.abbr}</span>
-                    <span className="text-sm font-semibold">{c.channel}</span>
+                <div key={c.channel} className="bg-amber-50 border-2 border-amber-400 rounded p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`font-mono font-extrabold text-xs ${th.bold}`}>{th.abbr}</span>
+                      <span className="text-sm font-semibold">{c.channel}</span>
+                    </div>
+                    <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">
+                      ⭐ {count}건{running > 0 && ` (진행 ${running})`}
+                    </span>
                   </div>
                   <div className="text-xs space-y-0.5">
                     <div>매출 <b>{fmt(c.sale)}</b>원</div>
@@ -102,12 +144,59 @@ export default function ChannelPL({ totals, range, channels }: Props) {
                 </div>
               );
             })}
-          </div>
-          <div className="text-[10px] text-slate-400 mt-1">
-            ※ 채널별 광고비는 정산자동화웹에서 분할 안 됨 — 전체 광고비는 위 박스 참고
+            {phantomEventChannels.map((p) => {
+              const th = themeOf(p.channel_key);
+              return (
+                <div key={p.channel_key} className="bg-amber-50 border-2 border-dashed border-amber-300 rounded p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`font-mono font-extrabold text-xs ${th.bold}`}>{th.abbr}</span>
+                      <span className="text-sm font-semibold">{th.label}</span>
+                    </div>
+                    <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">
+                      ⭐ {p.count}건{p.running > 0 && ` (진행 ${p.running})`}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-500">매출 미발생 (행사 진행 중 또는 미입점)</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
+
+      {/* 2-B) 매출만 있고 행사는 없는 채널 (회색 톤) */}
+      {withoutEvents.length > 0 && (
+        <div>
+          <div className="text-xs font-semibold text-slate-500 mb-2">
+            기타 매출 채널 ({withoutEvents.length}개 — 등록된 행사 없음)
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+            {withoutEvents.map((c) => {
+              const themeKey = CHANNEL_TO_KEY[c.channel] || "?";
+              const th = themeOf(themeKey);
+              return (
+                <div key={c.channel} className="bg-slate-50 border rounded p-2 opacity-80">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className={`font-mono font-bold text-[11px] ${th.bold}`}>{th.abbr}</span>
+                    <span className="text-xs font-semibold">{c.channel}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-600">
+                    매출 {fmt(c.sale)}원
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    영업이익 {fmt(c.operating_profit)} ({c.margin_rate.toFixed(1)}%)
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="text-[10px] text-slate-400">
+        ※ ⭐ = 우리 시스템에 행사 등록된 채널 / 광고비는 정산자동화웹에서 채널별 분할 안 됨 (위 합계 박스 참고)
+      </div>
     </div>
   );
 }
