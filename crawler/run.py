@@ -230,6 +230,53 @@ def cmd_unregister(id_prefix: str, sku_id: int) -> int:
     return 0
 
 
+def cmd_sales_all() -> int:
+    """모든 active 행사(applied/selected/running) 의 매출 자동 새로고침.
+
+    SKU 등록 + 진행기간 있는 행사만 대상. systemd timer 가 매시간 호출.
+    """
+    from api.sales import fetch_event_sales
+
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT dedup_id, title, channel_key, sale_start, sale_end, applied_skus_json
+               FROM events
+               WHERE status IN ('applied', 'selected', 'running')
+                 AND applied_skus_json IS NOT NULL
+                 AND sale_start IS NOT NULL
+                 AND sale_end IS NOT NULL"""
+        ).fetchall()
+    print(f"[sales-all] 대상 행사: {len(rows)}건")
+    n_ok = 0
+    n_err = 0
+    for r in rows:
+        try:
+            import json as _j
+            skus = _j.loads(r["applied_skus_json"]) or []
+            sku_names = [s.get("sku_name") for s in skus if s.get("sku_name")]
+            if not sku_names:
+                continue
+            settle_names = _channel_settle_names(r["channel_key"]) or None
+            result = fetch_event_sales(
+                sku_names, r["sale_start"], r["sale_end"], channels=settle_names
+            )
+            with connect() as conn2:
+                expected = sum(
+                    int(s.get("sale_price", 0)) * int(s.get("qty_est", 0)) for s in skus
+                )
+                set_event_sales(
+                    conn2, r["dedup_id"], {**result, "expected_revenue": expected}
+                )
+            sale = int(result["totals"].get("sale", 0))
+            print(f"  ✓ {r['dedup_id'][:6]}  매출 {sale:>14,}원  {r['title'][:50]}")
+            n_ok += 1
+        except Exception as e:  # noqa: BLE001
+            print(f"  ✗ {r['dedup_id'][:6]}  {e!r}", file=sys.stderr)
+            n_err += 1
+    print(f"[sales-all] 완료 — 성공 {n_ok}건, 실패 {n_err}건")
+    return 0 if n_err == 0 else 1
+
+
 def _channel_settle_names(channel_key: str) -> list[str]:
     """events.channel_key → channels.yaml 의 settle_channels 리스트."""
     channels = load_channels()
@@ -728,6 +775,8 @@ def main() -> None:
     pper.add_argument("start")
     pper.add_argument("end")
 
+    psa = sp.add_parser("sales-all", help="active 행사(applied/selected/running) 매출 일괄 새로고침")
+
     psl = sp.add_parser("sales", help="행사 등록 SKU+기간으로 정산자동화웹 매출 매칭")
     psl.add_argument("id_prefix")
     psl.add_argument(
@@ -841,6 +890,8 @@ def main() -> None:
         sys.exit(cmd_period(args.id_prefix, args.start, args.end))
     elif args.cmd == "sales":
         sys.exit(cmd_sales(args.id_prefix, args.channel, args.all_channels))
+    elif args.cmd == "sales-all":
+        sys.exit(cmd_sales_all())
     elif args.cmd == "add-event":
         sys.exit(cmd_add_event(
             args.channel_key, args.title, args.deadline, args.url, args.memo, args.category,

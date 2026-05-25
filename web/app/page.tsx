@@ -1,12 +1,18 @@
 import Link from "next/link";
 import Calendar from "@/components/Calendar";
+import BrandPL from "@/components/BrandPL";
 import { loadChannels } from "@/lib/channels";
 import { loadEvents } from "@/lib/data";
+import { fetchBrandPL } from "@/lib/settle";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const [payload, channels] = await Promise.all([loadEvents(), loadChannels()]);
+  const [payload, channels, brandPL] = await Promise.all([
+    loadEvents(),
+    loadChannels(),
+    fetchBrandPL().catch(() => []),
+  ]);
   const generatedAt = payload.generated_at?.slice(0, 16).replace("T", " ") ?? "";
   const settleBase = process.env.NEXT_PUBLIC_SETTLE_BASE_URL || "http://3.37.214.243";
 
@@ -49,6 +55,8 @@ export default async function Home() {
             </a>
           </div>
         </header>
+
+        <BrandPL items={brandPL} />
 
         <Calendar
           events={payload.events}

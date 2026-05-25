@@ -12,6 +12,7 @@ WorkingDirectory=/home/ubuntu/doa-md-agent
 EnvironmentFile=/home/ubuntu/doa-md-agent/.env
 ExecStart=/home/ubuntu/.local/bin/uv run python -m crawler.auto_login
 ExecStart=/home/ubuntu/.local/bin/uv run python -m crawler.run crawl
+ExecStart=/home/ubuntu/.local/bin/uv run python -m crawler.run sales-all
 ExecStart=/home/ubuntu/.local/bin/uv run python -m crawler.run dump-json
 ExecStart=/home/ubuntu/.local/bin/uv run python -m crawler.notify
 StandardOutput=append:/home/ubuntu/doa-md-agent/data/poll.log
