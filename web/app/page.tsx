@@ -20,6 +20,24 @@ export default async function Home() {
   const opsCount = payload.events.filter(
     (e) => e.status === "running" || e.status === "selected"
   ).length;
+  // 회고 미작성 — closed + sale_end 지난 지 14일 이내 + ops_retro_note 비어있음
+  const retroPendingCount = (() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const cutoff = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000);
+    let n = 0;
+    for (const e of payload.events) {
+      if (e.status !== "closed") continue;
+      if (!e.sale_end) continue;
+      const end = new Date(e.sale_end);
+      if (isNaN(end.getTime())) continue;
+      end.setHours(0, 0, 0, 0);
+      if (end > today || end < cutoff) continue;
+      if (e.ops_retro_note && e.ops_retro_note.trim()) continue;
+      n++;
+    }
+    return n;
+  })();
 
   return (
     <main className="min-h-screen bg-slate-50 p-6">
@@ -45,9 +63,17 @@ export default async function Home() {
             </Link>
             <Link
               href="/events"
-              className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
+              className={`px-4 py-2 text-sm rounded ${
+                retroPendingCount > 0
+                  ? "bg-violet-100 border border-violet-400 hover:bg-violet-200 text-violet-900 font-medium"
+                  : "bg-white border hover:bg-slate-50 text-slate-700"
+              }`}
+              title={retroPendingCount > 0 ? `회고 미작성 ${retroPendingCount}건 (14일 이내 종료)` : ""}
             >
               📊 행사 표
+              {retroPendingCount > 0 && (
+                <span className="ml-1 font-extrabold">· 📝{retroPendingCount}</span>
+              )}
             </Link>
             <Link
               href="/jeongsan"
