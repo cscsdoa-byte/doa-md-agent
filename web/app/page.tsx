@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Calendar from "@/components/Calendar";
 import ChannelPL from "@/components/ChannelPL";
+import MdPL from "@/components/MdPL";
 import { loadChannels } from "@/lib/channels";
 import { loadEvents } from "@/lib/data";
 import { fetchChannelPL } from "@/lib/settle";
@@ -103,6 +104,8 @@ export default async function Home() {
           channels={channelPL.channels}
           events={payload.events}
         />
+
+        <MdPL events={payload.events} />
 
         <Calendar
           events={payload.events}
