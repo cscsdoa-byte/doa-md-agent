@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Contact, EventItem } from "@/lib/data";
+import { apiUrl } from "@/lib/api";
 import { themeOf } from "@/lib/channelTheme";
 import { STATUS_BADGE, STATUS_OPTIONS, STATUS_PRIORITY, statusLabel } from "@/lib/status";
 
@@ -150,6 +151,14 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
 
   const router = useRouter();
 
+  // events 갱신 시 모달에 보이는 selectedDetail 도 새 데이터로 동기화
+  useEffect(() => {
+    if (!selectedDetail) return;
+    const fresh = events.find((e) => e.dedup_id === selectedDetail.dedup_id);
+    if (fresh && fresh !== selectedDetail) setSelectedDetail(fresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events]);
+
   const toggleSort = (k: SortKey) => {
     setSort((s) => (s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: "asc" }));
   };
@@ -159,6 +168,28 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
   const goToCalendar = (dedup_id: string) => {
     router.push(`/?selected=${dedup_id}`);
   };
+
+  // 모달 인라인 저장 — 상태/메모/기간/담당MD/광고비
+  const [savingField, setSavingField] = useState<string | null>(null);
+  async function patchEvent(dedupId: string, body: Record<string, unknown>, label: string) {
+    const shortId = dedupId.slice(0, 6);
+    setSavingField(label);
+    try {
+      const r = await fetch(apiUrl(`/api/event/${shortId}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => null);
+        alert(`저장 실패 (${label}): ${j?.error || r.statusText}`);
+        return;
+      }
+      router.refresh();
+    } finally {
+      setSavingField(null);
+    }
+  }
 
   const sortIcon = (k: SortKey) => (sort.key === k ? (sort.dir === "asc" ? " ▲" : " ▼") : "");
 
@@ -367,10 +398,18 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
           >
             <div className="p-4 border-b flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`inline-block text-[10px] px-1.5 py-0.5 rounded ${STATUS_BADGE[selectedDetail.status] ?? "bg-gray-100"}`}>
-                    {statusLabel(selectedDetail.status)}
-                  </span>
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  {/* 상태 드롭다운 — 즉시 변경 */}
+                  <select
+                    value={selectedDetail.status}
+                    disabled={savingField === "status"}
+                    onChange={(e) => patchEvent(selectedDetail.dedup_id, { status: e.target.value }, "status")}
+                    className={`text-xs px-2 py-0.5 rounded border-0 cursor-pointer ${STATUS_BADGE[selectedDetail.status] ?? "bg-gray-100"}`}
+                  >
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
                   {(() => {
                     const th = themeOf(selectedDetail.channel_key);
                     return (
@@ -381,6 +420,9 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
                     );
                   })()}
                   <span className="text-[10px] text-slate-400 font-mono">{selectedDetail.dedup_id.slice(0, 6)}</span>
+                  {savingField && (
+                    <span className="text-[10px] text-slate-500">⏳ {savingField} 저장 중...</span>
+                  )}
                 </div>
                 <h3 className="text-base font-bold text-slate-900">{selectedDetail.title}</h3>
               </div>
@@ -416,6 +458,13 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
                   {selectedDetail.discount_burden && ` (${selectedDetail.discount_burden})`}
                 </div>
               </div>
+
+              {/* ✏️ 빠른 수정 — 자주 쓰는 필드만 인라인 저장 */}
+              <QuickEditSection
+                event={selectedDetail}
+                savingField={savingField}
+                onSave={(body, label) => patchEvent(selectedDetail.dedup_id, body, label)}
+              />
 
               {selectedDetail.memo && (
                 <div className="bg-slate-50 border rounded p-2 text-xs whitespace-pre-wrap">
@@ -483,6 +532,126 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface QuickEditProps {
+  event: EventItem;
+  savingField: string | null;
+  onSave: (body: Record<string, unknown>, label: string) => Promise<void>;
+}
+
+function QuickEditSection({ event, savingField, onSave }: QuickEditProps) {
+  // 이벤트 바뀌면 draft 도 새로
+  const [memo, setMemo] = useState(event.memo ?? "");
+  const [periodStart, setPeriodStart] = useState(event.sale_start?.slice(0, 10) ?? "");
+  const [periodEnd, setPeriodEnd] = useState(event.sale_end?.slice(0, 10) ?? "");
+  const [owner, setOwner] = useState(event.md_owner_name ?? "");
+  const [adSpend, setAdSpend] = useState(event.ad_spend_manual != null ? String(event.ad_spend_manual) : "");
+
+  useEffect(() => {
+    setMemo(event.memo ?? "");
+    setPeriodStart(event.sale_start?.slice(0, 10) ?? "");
+    setPeriodEnd(event.sale_end?.slice(0, 10) ?? "");
+    setOwner(event.md_owner_name ?? "");
+    setAdSpend(event.ad_spend_manual != null ? String(event.ad_spend_manual) : "");
+  }, [event.dedup_id, event.memo, event.sale_start, event.sale_end, event.md_owner_name, event.ad_spend_manual]);
+
+  const memoChanged = memo !== (event.memo ?? "");
+  const periodChanged = periodStart !== (event.sale_start?.slice(0, 10) ?? "") || periodEnd !== (event.sale_end?.slice(0, 10) ?? "");
+  const ownerChanged = owner !== (event.md_owner_name ?? "");
+  const adChanged = adSpend !== (event.ad_spend_manual != null ? String(event.ad_spend_manual) : "");
+
+  return (
+    <div className="border border-blue-200 bg-blue-50/40 rounded p-3 space-y-2">
+      <div className="text-xs font-bold text-blue-900">✏️ 빠른 수정</div>
+
+      {/* 담당 MD */}
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-slate-600 w-16 shrink-0">담당 MD</label>
+        <input
+          value={owner}
+          onChange={(e) => setOwner(e.target.value)}
+          placeholder="이름"
+          className="flex-1 text-xs border rounded px-2 py-1 bg-white"
+        />
+        <button
+          disabled={!ownerChanged || savingField !== null}
+          onClick={() => onSave({ md_owner_name: owner }, "담당 MD")}
+          className="text-xs px-2 py-1 rounded bg-blue-600 text-white disabled:bg-slate-300"
+        >
+          저장
+        </button>
+      </div>
+
+      {/* 기간 */}
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-slate-600 w-16 shrink-0">기간</label>
+        <input
+          type="date"
+          value={periodStart}
+          onChange={(e) => setPeriodStart(e.target.value)}
+          className="text-xs border rounded px-2 py-1 bg-white"
+        />
+        <span className="text-xs text-slate-400">~</span>
+        <input
+          type="date"
+          value={periodEnd}
+          onChange={(e) => setPeriodEnd(e.target.value)}
+          className="text-xs border rounded px-2 py-1 bg-white"
+        />
+        <button
+          disabled={!periodChanged || !periodStart || !periodEnd || savingField !== null}
+          onClick={() => onSave({ sale_start: periodStart, sale_end: periodEnd }, "기간")}
+          className="text-xs px-2 py-1 rounded bg-blue-600 text-white disabled:bg-slate-300"
+        >
+          저장
+        </button>
+      </div>
+
+      {/* 광고비 */}
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-slate-600 w-16 shrink-0">광고비</label>
+        <input
+          type="number"
+          value={adSpend}
+          onChange={(e) => setAdSpend(e.target.value)}
+          placeholder="0"
+          className="flex-1 text-xs border rounded px-2 py-1 bg-white"
+        />
+        <span className="text-xs text-slate-500">원</span>
+        <button
+          disabled={!adChanged || savingField !== null}
+          onClick={() => onSave({ ad_spend: parseInt(adSpend || "0", 10) || 0 }, "광고비")}
+          className="text-xs px-2 py-1 rounded bg-blue-600 text-white disabled:bg-slate-300"
+        >
+          저장
+        </button>
+      </div>
+
+      {/* 메모 */}
+      <div className="flex items-start gap-2">
+        <label className="text-xs text-slate-600 w-16 shrink-0 mt-1">메모</label>
+        <textarea
+          value={memo}
+          onChange={(e) => setMemo(e.target.value)}
+          rows={2}
+          placeholder="진행 상황·이슈 메모"
+          className="flex-1 text-xs border rounded px-2 py-1 bg-white resize-none"
+        />
+        <button
+          disabled={!memoChanged || savingField !== null}
+          onClick={() => onSave({ memo }, "메모")}
+          className="text-xs px-2 py-1 rounded bg-blue-600 text-white disabled:bg-slate-300 self-start"
+        >
+          저장
+        </button>
+      </div>
+
+      <div className="text-[10px] text-slate-500 mt-1">
+        ※ 더 자세한 수정 (SKU 등록 / 업체 / 행사 유형 등) 은 아래 "📅 캘린더에서 수정" 버튼
+      </div>
     </div>
   );
 }
