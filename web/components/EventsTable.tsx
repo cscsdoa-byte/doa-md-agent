@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Contact, EventItem } from "@/lib/data";
 import { apiUrl } from "@/lib/api";
 import { themeOf } from "@/lib/channelTheme";
+import { detectConflicts } from "@/lib/conflict";
 import { STATUS_BADGE, STATUS_OPTIONS, STATUS_PRIORITY, statusLabel } from "@/lib/status";
 
 interface Props {
@@ -66,6 +67,9 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
     }
     return m;
   }, [contacts]);
+
+  // 카니발리제이션 detection
+  const conflictsMap = useMemo(() => detectConflicts(events), [events]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -334,7 +338,12 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
                       <span className="text-xs">{th.label}</span>
                     </td>
                     <td className="px-2 py-2">
-                      <div className="font-medium text-slate-800">{e.title}</div>
+                      <div className="font-medium text-slate-800 flex items-center gap-1">
+                        {conflictsMap.has(e.dedup_id) && (
+                          <span className="text-rose-500 font-bold shrink-0" title={`카니발 충돌 — 다른 채널과 같은 SKU·기간 겹침`}>⚡</span>
+                        )}
+                        <span>{e.title}</span>
+                      </div>
                       <div className="text-[10px] text-slate-400 font-mono">{e.dedup_id.slice(0, 6)}</div>
                     </td>
                     <td className="px-2 py-2 text-xs">

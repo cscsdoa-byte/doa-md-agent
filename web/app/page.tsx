@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Calendar from "@/components/Calendar";
 import ChannelPL from "@/components/ChannelPL";
+import ConflictBanner from "@/components/ConflictBanner";
 import MdPL from "@/components/MdPL";
 import SeasonBanner from "@/components/SeasonBanner";
 import { loadChannels } from "@/lib/channels";
@@ -42,14 +43,14 @@ export default async function Home() {
   return (
     <main className="min-h-screen bg-slate-50 p-6">
       <div className="max-w-7xl mx-auto">
-        <header className="flex items-center justify-between mb-6">
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">📅 도아 MD 행사 캘린더</h1>
             <p className="text-sm text-slate-500 mt-1">
               데이터 갱신: {generatedAt} · 전체 {payload.total}건 · 도아 적합 {payload.doa_fit}건
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Link
               href="/ops"
               className={`px-4 py-2 text-sm rounded font-medium ${
@@ -119,6 +120,8 @@ export default async function Home() {
         </header>
 
         <SeasonBanner />
+
+        <ConflictBanner events={payload.events} />
 
         <ChannelPL
           totals={channelPL.totals}
