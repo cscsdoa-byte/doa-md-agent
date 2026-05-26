@@ -31,14 +31,14 @@ export default async function OpsPage() {
   return (
     <main className="min-h-screen bg-slate-50 p-6">
       <div className="max-w-7xl mx-auto">
-        <header className="flex items-center justify-between mb-4">
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">🛠️ 진행중 행사 운영 보드</h1>
             <p className="text-sm text-slate-500 mt-1">
               데이터 갱신: {generatedAt} · 진행중·선정 {items.length}건
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Link
               href="/"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
