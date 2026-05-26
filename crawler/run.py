@@ -29,6 +29,7 @@ from crawler.store import (
     get_attachment,
     list_attachments,
     list_channels_master,
+    set_sku_channel_status,
     list_contacts,
     list_recent,
     list_templates,
@@ -642,6 +643,26 @@ def cmd_sync_channels(dry: bool) -> int:
     return sync(dry)
 
 
+def cmd_sku_matrix_set(
+    settle_name: str,
+    sku_id: int,
+    status: str | None,
+    entry_date: str | None,
+    note: str | None,
+) -> int:
+    """SKU × 채널 입점 상태 set/clear."""
+    if status not in (None, "entered", "reviewing", "blocked"):
+        print(f"ERROR: status는 entered/reviewing/blocked/(없음) 중 하나", file=sys.stderr)
+        return 1
+    with connect() as conn:
+        ok = set_sku_channel_status(conn, settle_name, sku_id, status, entry_date, note)
+    if ok:
+        print(f"✓ {settle_name} × SKU#{sku_id} → {status or '(미입점)'}")
+        return 0
+    print(f"ERROR: 채널 '{settle_name}' 못 찾음", file=sys.stderr)
+    return 1
+
+
 def cmd_channel_meta(
     settle_name: str,
     status: str | None,
@@ -1087,6 +1108,14 @@ def main() -> None:
     pchd = sp.add_parser("channel-del", help="채널 마스터 삭제")
     pchd.add_argument("settle_name")
 
+    psm = sp.add_parser("sku-matrix-set", help="SKU × 채널 입점 상태 set/clear")
+    psm.add_argument("settle_name")
+    psm.add_argument("sku_id", type=int)
+    psm.add_argument("--status", default=None, choices=["entered", "reviewing", "blocked", "none"],
+                     help="entered/reviewing/blocked (none = 미입점, 키 삭제)")
+    psm.add_argument("--entry-date", default=None, help="입점일 YYYY-MM-DD")
+    psm.add_argument("--note", default=None)
+
     ptl = sp.add_parser("template-list", help="반복 행사 템플릿 목록")
 
     pta = sp.add_parser("template-add", help="반복 행사 템플릿 추가")
@@ -1230,6 +1259,9 @@ def main() -> None:
         ))
     elif args.cmd == "channel-del":
         sys.exit(cmd_channel_delete(args.settle_name))
+    elif args.cmd == "sku-matrix-set":
+        status = None if args.status in (None, "none") else args.status
+        sys.exit(cmd_sku_matrix_set(args.settle_name, args.sku_id, status, args.entry_date, args.note))
     elif args.cmd == "template-list":
         sys.exit(cmd_template_list())
     elif args.cmd == "template-add":

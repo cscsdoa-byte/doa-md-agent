@@ -537,6 +537,50 @@ def delete_channel_master(conn: sqlite3.Connection, settle_name: str) -> bool:
     return cur.rowcount > 0
 
 
+def set_sku_channel_status(
+    conn: sqlite3.Connection,
+    settle_name: str,
+    sku_id: int,
+    status: str | None,
+    entry_date: str | None = None,
+    note: str | None = None,
+) -> bool:
+    """SKU × 채널 입점 상태 업데이트 (channels_master.sku_matrix_json 의 sku_id 키 set/clear).
+
+    status:
+      - "entered" : 입점 완료 (✓)
+      - "reviewing": 검토중 (⏳)
+      - "blocked"  : 입점 불가 (⚠)
+      - None       : 미입점 (✕, 해당 sku_id 키 삭제)
+    """
+    row = conn.execute(
+        "SELECT sku_matrix_json FROM channels_master WHERE settle_name = ?",
+        (settle_name,),
+    ).fetchone()
+    if not row:
+        return False
+    try:
+        matrix = json.loads(row["sku_matrix_json"]) if row["sku_matrix_json"] else {}
+    except Exception:
+        matrix = {}
+    key = str(sku_id)
+    if status is None:
+        matrix.pop(key, None)
+    else:
+        entry = {"status": status}
+        if entry_date:
+            entry["entry_date"] = entry_date
+        if note:
+            entry["note"] = note
+        matrix[key] = entry
+    payload = json.dumps(matrix, ensure_ascii=False)
+    conn.execute(
+        "UPDATE channels_master SET sku_matrix_json = ? WHERE settle_name = ?",
+        (payload, settle_name),
+    )
+    return True
+
+
 def update_channel_master_meta(
     conn: sqlite3.Connection,
     settle_name: str,
