@@ -22,6 +22,7 @@ interface PatchBody {
   vendor_name?: string;
   vendor_contact?: string;
   md_owner_name?: string;
+  channel_key?: string;
 }
 
 export async function PATCH(
@@ -62,6 +63,7 @@ export async function PATCH(
     if (body.vendor_name !== undefined) updateArgs.push("--vendor", body.vendor_name);
     if (body.vendor_contact !== undefined) updateArgs.push("--vendor-contact", body.vendor_contact);
     if (body.md_owner_name !== undefined) updateArgs.push("--owner", body.md_owner_name);
+    if (body.channel_key !== undefined && body.channel_key !== "") updateArgs.push("--channel", body.channel_key);
     if (updateArgs.length > 2) {
       await runCli(updateArgs);
     }

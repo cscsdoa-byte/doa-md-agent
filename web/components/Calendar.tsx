@@ -127,6 +127,7 @@ export default function Calendar({
   const [editVendor, setEditVendor] = useState("");
   const [editVendorContact, setEditVendorContact] = useState("");
   const [editOwner, setEditOwner] = useState("");
+  const [editChannel, setEditChannel] = useState("");
   const [showEdit, setShowEdit] = useState(false);
   // SKU 검색 (우측 패널)
   const [skuQuery, setSkuQuery] = useState("");
@@ -283,6 +284,7 @@ export default function Calendar({
       setEditVendor(selected.vendor_name ?? "");
       setEditVendorContact(selected.vendor_contact ?? "");
       setEditOwner(selected.md_owner_name ?? "");
+      setEditChannel(selected.channel_key);
       setShowEdit(false);
       setAdSpendDraft(selected.ad_spend_manual ? String(selected.ad_spend_manual) : "");
       setSkuQuery(""); setSkuHits([]);
@@ -309,6 +311,7 @@ export default function Calendar({
       vendor_name: editVendor,
       vendor_contact: editVendorContact,
       md_owner_name: editOwner,
+      channel_key: editChannel !== selected.channel_key ? editChannel : undefined,
     });
     setShowEdit(false);
   }
@@ -1248,6 +1251,16 @@ export default function Calendar({
                     <div className="col-span-2">
                       <label className="text-[11px] text-gray-600 block mb-0.5">담당 MD (자유 입력)</label>
                       <input type="text" placeholder="홍길동 / 이아무개" className="w-full text-sm border rounded px-2 py-1.5" value={editOwner} onChange={(e) => setEditOwner(e.target.value)} />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-[11px] text-gray-600 block mb-0.5">채널 (잘못 등록한 경우 변경)</label>
+                      <select className="w-full text-sm border rounded px-2 py-1.5" value={editChannel} onChange={(e) => setEditChannel(e.target.value)}>
+                        {channels.map((c) => (
+                          <option key={c.key} value={c.key}>
+                            {c.name} {c.is_sales ? "(판매)" : "(정보)"}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                   {selected.source !== "manual" && (

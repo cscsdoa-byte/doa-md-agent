@@ -36,14 +36,26 @@ function dateStr(s: string | null): string {
   return s ? s.slice(0, 10) : "-";
 }
 
+function defaultPeriodStart(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+function defaultPeriodEnd(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 30); // 한 달 앞까지
+  return d.toISOString().slice(0, 10);
+}
+
 export default function EventsTable({ events, contacts, channelOptions }: Props) {
   const [search, setSearch] = useState("");
   const [channelFilter, setChannelFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
-  const [hideClosed, setHideClosed] = useState(true);
+  const [periodStart, setPeriodStart] = useState(defaultPeriodStart());
+  const [periodEnd, setPeriodEnd] = useState(defaultPeriodEnd());
   const [hideRSS, setHideRSS] = useState(true);
   const [doaOnly, setDoaOnly] = useState(false);
   const [sort, setSort] = useState<SortState>({ key: "status", dir: "asc" });
+  const [selectedDetail, setSelectedDetail] = useState<EventItem | null>(null);
 
   // 채널별 contacts 매핑 (가장 최근 contact 1명)
   const contactByChannel = useMemo(() => {
@@ -59,16 +71,29 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
     return events.filter((e) => {
       if (channelFilter && e.channel_key !== channelFilter) return false;
       if (statusFilter && e.status !== statusFilter) return false;
-      if (hideClosed && (e.status === "closed" || e.status === "skip")) return false;
       if (hideRSS && !e.sale_start) return false;
       if (doaOnly && !e.is_doa_fit) return false;
+      // 기간 필터: 행사 진행기간 (sale_start ~ sale_end) 이 [periodStart, periodEnd] 와 겹치는지
+      // sale_start 없는 행사는 hideRSS=true 면 이미 거름. false 면 deadline_at 으로 검사.
+      if (periodStart && periodEnd) {
+        const ss = e.sale_start ? e.sale_start.slice(0, 10) : null;
+        const se = e.sale_end ? e.sale_end.slice(0, 10) : ss;
+        if (ss && se) {
+          // overlap: ss <= periodEnd && se >= periodStart
+          if (ss > periodEnd || se < periodStart) return false;
+        } else if (!hideRSS) {
+          // RSS 안내문 (기간 없음) — deadline_at 이 범위 내인지로 대체
+          const dl = e.deadline_at ? e.deadline_at.slice(0, 10) : null;
+          if (!dl || dl < periodStart || dl > periodEnd) return false;
+        }
+      }
       if (q) {
         const hay = `${e.title} ${e.vendor_name ?? ""} ${e.memo ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [events, search, channelFilter, statusFilter, hideClosed, hideRSS, doaOnly]);
+  }, [events, search, channelFilter, statusFilter, periodStart, periodEnd, hideRSS, doaOnly]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -129,7 +154,8 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
     setSort((s) => (s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: "asc" }));
   };
 
-  // 행 클릭 → 캘린더로 이동 + 자동 선택 (Calendar 의 useSearchParams 가 처리)
+  // 행 클릭 → 모달로 세부 정보. "캘린더에서 수정" 버튼은 모달 안.
+  const openDetail = (event: EventItem) => setSelectedDetail(event);
   const goToCalendar = (dedup_id: string) => {
     router.push(`/?selected=${dedup_id}`);
   };
@@ -139,52 +165,78 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
   return (
     <div>
       {/* 필터 바 */}
-      <div className="bg-white border rounded p-3 mb-3 flex flex-wrap items-center gap-2 text-sm">
-        <input
-          type="text"
-          placeholder="제목/업체/메모 검색"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="px-2 py-1 border rounded text-sm w-56"
-        />
-        <select
-          value={channelFilter}
-          onChange={(e) => setChannelFilter(e.target.value)}
-          className="px-2 py-1 border rounded text-sm"
-        >
-          <option value="">전 채널</option>
-          {channelOptions.map((c) => (
-            <option key={c.key} value={c.key}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-2 py-1 border rounded text-sm"
-        >
-          <option value="">전 상태</option>
-          {STATUS_OPTIONS.map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
-            </option>
-          ))}
-        </select>
-        <label className="flex items-center gap-1 text-xs text-slate-700">
-          <input type="checkbox" checked={hideClosed} onChange={(e) => setHideClosed(e.target.checked)} />
-          종료/패스 숨김
-        </label>
-        <label className="flex items-center gap-1 text-xs text-slate-700">
-          <input type="checkbox" checked={hideRSS} onChange={(e) => setHideRSS(e.target.checked)} />
-          기간 없는 RSS 안내문 숨김
-        </label>
-        <label className="flex items-center gap-1 text-xs text-slate-700">
-          <input type="checkbox" checked={doaOnly} onChange={(e) => setDoaOnly(e.target.checked)} />
-          도아 적합만
-        </label>
-        <div className="ml-auto text-xs text-slate-600">
-          <b>{totals.count}</b>건 · 행사 매출 <b>{fmt(totals.sale)}</b>원 · 영업이익 <b className="text-emerald-700">{fmt(totals.op)}</b>원
+      <div className="bg-white border rounded p-3 mb-3 space-y-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-slate-700">📅 기간</span>
+          <input
+            type="date"
+            value={periodStart}
+            onChange={(e) => setPeriodStart(e.target.value)}
+            className="px-2 py-1 border rounded text-sm"
+          />
+          <span className="text-xs text-slate-500">~</span>
+          <input
+            type="date"
+            value={periodEnd}
+            onChange={(e) => setPeriodEnd(e.target.value)}
+            className="px-2 py-1 border rounded text-sm"
+          />
+          <button
+            onClick={() => { setPeriodStart(defaultPeriodStart()); setPeriodEnd(defaultPeriodEnd()); }}
+            className="text-xs px-2 py-1 border rounded text-slate-600 hover:bg-slate-50"
+          >
+            기본
+          </button>
+          <button
+            onClick={() => { setPeriodStart(""); setPeriodEnd(""); }}
+            className="text-xs px-2 py-1 border rounded text-slate-600 hover:bg-slate-50"
+          >
+            전 기간
+          </button>
+          <div className="ml-auto text-xs text-slate-600">
+            <b>{totals.count}</b>건 · 행사 매출 <b>{fmt(totals.sale)}</b>원 · 영업이익 <b className="text-emerald-700">{fmt(totals.op)}</b>원
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            placeholder="제목/업체/메모 검색"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="px-2 py-1 border rounded text-sm w-56"
+          />
+          <select
+            value={channelFilter}
+            onChange={(e) => setChannelFilter(e.target.value)}
+            className="px-2 py-1 border rounded text-sm"
+          >
+            <option value="">전 채널</option>
+            {channelOptions.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-2 py-1 border rounded text-sm"
+          >
+            <option value="">전 상태</option>
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <label className="flex items-center gap-1 text-xs text-slate-700">
+            <input type="checkbox" checked={hideRSS} onChange={(e) => setHideRSS(e.target.checked)} />
+            RSS 안내문(기간없음) 숨김
+          </label>
+          <label className="flex items-center gap-1 text-xs text-slate-700">
+            <input type="checkbox" checked={doaOnly} onChange={(e) => setDoaOnly(e.target.checked)} />
+            도아 적합만
+          </label>
         </div>
       </div>
 
@@ -238,8 +290,8 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
                   <tr
                     key={e.dedup_id}
                     className="border-b hover:bg-blue-50 align-top cursor-pointer"
-                    onClick={() => goToCalendar(e.dedup_id)}
-                    title="클릭하면 캘린더에서 이 행사를 열어 수정할 수 있어요"
+                    onClick={() => openDetail(e)}
+                    title="클릭하면 세부 정보 보기"
                   >
                     <td className="px-2 py-2">
                       <span className={`inline-block text-[10px] px-1.5 py-0.5 rounded ${STATUS_BADGE[e.status] ?? "bg-gray-100"}`}>
@@ -300,8 +352,137 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
       </div>
 
       <div className="text-[10px] text-slate-400 mt-2">
-        ※ 행 클릭 → 캘린더로 이동 + 우측 패널에서 수정 / 컬럼 헤더 클릭으로 정렬 / 기본은 종료·패스 + RSS 안내문 숨김
+        ※ 기본 = 이번 달 1일 ~ +30일. 종료된 행사도 기간 안이면 포함. 클릭 → 세부 모달. 모달에서 "캘린더에서 수정" 가능.
       </div>
+
+      {/* 세부 모달 */}
+      {selectedDetail && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          onClick={() => setSelectedDetail(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`inline-block text-[10px] px-1.5 py-0.5 rounded ${STATUS_BADGE[selectedDetail.status] ?? "bg-gray-100"}`}>
+                    {statusLabel(selectedDetail.status)}
+                  </span>
+                  {(() => {
+                    const th = themeOf(selectedDetail.channel_key);
+                    return (
+                      <span className="text-xs">
+                        <span className={`font-mono font-extrabold ${th.bold}`}>{th.abbr}</span>{" "}
+                        {th.label}
+                      </span>
+                    );
+                  })()}
+                  <span className="text-[10px] text-slate-400 font-mono">{selectedDetail.dedup_id.slice(0, 6)}</span>
+                </div>
+                <h3 className="text-base font-bold text-slate-900">{selectedDetail.title}</h3>
+              </div>
+              <button
+                className="text-slate-400 hover:text-slate-700 text-xl leading-none"
+                onClick={() => setSelectedDetail(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div><span className="text-slate-500">담당 MD</span><br/>
+                  {selectedDetail.md_owner_name ? (
+                    <b className="text-blue-700">👤 {selectedDetail.md_owner_name}</b>
+                  ) : (
+                    <span className="text-slate-400">(미지정)</span>
+                  )}
+                </div>
+                <div><span className="text-slate-500">업체</span><br/>
+                  {selectedDetail.vendor_name ? <b>{selectedDetail.vendor_name}</b> : <span className="text-slate-400">-</span>}
+                  {selectedDetail.vendor_contact && <span className="text-slate-500 ml-1">({selectedDetail.vendor_contact})</span>}
+                </div>
+                <div><span className="text-slate-500">기간</span><br/>
+                  {selectedDetail.sale_start ? (
+                    <b>{selectedDetail.sale_start.slice(0, 10)}{selectedDetail.sale_end && selectedDetail.sale_end !== selectedDetail.sale_start ? ` ~ ${selectedDetail.sale_end.slice(0, 10)}` : ""}</b>
+                  ) : <span className="text-slate-400">-</span>}
+                </div>
+                <div><span className="text-slate-500">행사 유형 / 할인</span><br/>
+                  {selectedDetail.event_type || "-"}
+                  {selectedDetail.discount_rate != null && ` · ${(selectedDetail.discount_rate * 100).toFixed(0)}%`}
+                  {selectedDetail.discount_burden && ` (${selectedDetail.discount_burden})`}
+                </div>
+              </div>
+
+              {selectedDetail.memo && (
+                <div className="bg-slate-50 border rounded p-2 text-xs whitespace-pre-wrap">
+                  📝 {selectedDetail.memo}
+                </div>
+              )}
+
+              {selectedDetail.applied_skus.length > 0 && (
+                <div className="border rounded p-2">
+                  <div className="text-xs font-semibold text-slate-700 mb-1">등록 SKU ({selectedDetail.applied_skus.length}건)</div>
+                  <ul className="text-xs space-y-0.5">
+                    {selectedDetail.applied_skus.map((s, i) => (
+                      <li key={i}>
+                        {s.sku_name ?? `#${s.sku_id}`} — {s.sale_price.toLocaleString()}원 × {s.qty_est}건
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {selectedDetail.sales?.totals && (
+                <div className="bg-amber-50 border border-amber-200 rounded p-2">
+                  <div className="text-xs font-semibold text-amber-900 mb-1">🎯 실 매출 (정산자동화웹)</div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+                    <div>매출 <b>{Math.round(selectedDetail.sales.totals.sale).toLocaleString()}</b>원</div>
+                    <div>주문 <b>{selectedDetail.sales.totals.orders ?? 0}</b> / 수량 <b>{selectedDetail.sales.totals.qty ?? 0}</b></div>
+                    <div>영업이익 <b className="text-emerald-700">{Math.round(selectedDetail.sales.totals.operating_profit ?? 0).toLocaleString()}</b>원</div>
+                    <div>광고비 <b className="text-rose-600">{Math.round((selectedDetail.sales.totals.ad_cost ?? selectedDetail.sales.totals.ad_spend) ?? 0).toLocaleString()}</b>원</div>
+                  </div>
+                  {selectedDetail.sales_synced_at && (
+                    <div className="text-[10px] text-amber-700 mt-1">갱신 {selectedDetail.sales_synced_at.slice(0, 16).replace("T", " ")}</div>
+                  )}
+                </div>
+              )}
+
+              {selectedDetail.ad_spend_manual != null && selectedDetail.ad_spend_manual > 0 && (
+                <div className="text-xs">
+                  💰 광고비 수동 입력: <b>{selectedDetail.ad_spend_manual.toLocaleString()}</b>원
+                </div>
+              )}
+
+              <a href={selectedDetail.url} target="_blank" rel="noopener" className="text-xs text-blue-600 hover:underline block break-all">
+                {selectedDetail.url}
+              </a>
+            </div>
+
+            <div className="p-3 border-t bg-slate-50 flex justify-end gap-2">
+              <button
+                className="px-3 py-1.5 text-sm border rounded hover:bg-white"
+                onClick={() => setSelectedDetail(null)}
+              >
+                닫기
+              </button>
+              <button
+                className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                onClick={() => {
+                  const id = selectedDetail.dedup_id;
+                  setSelectedDetail(null);
+                  goToCalendar(id);
+                }}
+              >
+                📅 캘린더에서 수정
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

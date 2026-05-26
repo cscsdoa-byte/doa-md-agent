@@ -696,14 +696,20 @@ def cmd_update(
     vendor_name: str | None = None,
     vendor_contact: str | None = None,
     md_owner_name: str | None = None,
+    channel_key: str | None = None,
 ) -> int:
-    """행사 본문 필드 수정 (제목/마감/카테고리/URL/행사유형/할인/예상매출/업체/담당MD)."""
+    """행사 본문 필드 수정 (제목/마감/카테고리/URL/행사유형/할인/예상매출/업체/담당MD/채널)."""
     with connect() as conn:
         try:
             evt = resolve_event(conn, id_prefix)
         except LookupError as e:
             print(f"ERROR: {e}", file=sys.stderr)
             return 1
+        if channel_key is not None and channel_key != "":
+            valid = {c["key"] for c in load_channels()}
+            if channel_key not in valid:
+                print(f"ERROR: 알 수 없는 채널 '{channel_key}'. 가능: {sorted(valid)}", file=sys.stderr)
+                return 1
         update_event_fields(
             conn, evt["dedup_id"],
             title=title, deadline=deadline, category=category, url=url,
@@ -711,6 +717,7 @@ def cmd_update(
             discount_burden=discount_burden, expected_revenue=expected_revenue,
             vendor_name=vendor_name, vendor_contact=vendor_contact,
             md_owner_name=md_owner_name,
+            channel_key=channel_key,
         )
         print(f"✓ {evt['dedup_id'][:6]} 수정 완료")
     return 0
@@ -938,6 +945,7 @@ def main() -> None:
     pup.add_argument("--expected", type=int, default=None)
     pup.add_argument("--vendor", default=None)
     pup.add_argument("--owner", default=None, help="담당 MD 이름")
+    pup.add_argument("--channel", default=None, help="채널 변경 (channels.yaml 의 key)")
     pup.add_argument("--vendor-contact", default=None)
 
     patt = sp.add_parser("attach-channel-totals", help="행사 기간 채널 전체 매출을 sales_json 에 attach (SKU 매칭 생략)")
@@ -1010,6 +1018,7 @@ def main() -> None:
             discount_burden=args.burden, expected_revenue=args.expected,
             vendor_name=args.vendor, vendor_contact=args.vendor_contact,
             md_owner_name=args.owner,
+            channel_key=args.channel,
         ))
     elif args.cmd == "fee-rates":
         sys.exit(cmd_fee_rates(args.days))

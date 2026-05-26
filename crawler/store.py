@@ -443,6 +443,7 @@ def update_event_fields(
     vendor_name: str | None = None,
     vendor_contact: str | None = None,
     md_owner_name: str | None = None,
+    channel_key: str | None = None,
 ) -> None:
     """행사 본문 필드 직접 수정. 주로 수동 등록 행사 수정용.
 
@@ -479,6 +480,7 @@ def update_event_fields(
         ("vendor_name", vendor_name),
         ("vendor_contact", vendor_contact),
         ("md_owner_name", md_owner_name),
+        ("channel_key", channel_key),  # 채널 잘못 등록한 경우 변경 가능
     ):
         if val is not None:
             if val == "":

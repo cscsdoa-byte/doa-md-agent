@@ -13,7 +13,8 @@ export interface SalesTotals {
   cost: number;
   fee: number;
   shipping: number;
-  ad_spend: number;
+  ad_spend?: number;     // sales 명령(SKU 매칭) 결과
+  ad_cost?: number;      // attach-channel-totals 결과 (정산자동화웹 totals 그대로)
   qty: number;
   orders: number;
   operating_profit: number;
