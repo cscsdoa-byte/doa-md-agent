@@ -2,6 +2,7 @@ import Link from "next/link";
 import Calendar from "@/components/Calendar";
 import ChannelPL from "@/components/ChannelPL";
 import MdPL from "@/components/MdPL";
+import SeasonBanner from "@/components/SeasonBanner";
 import { loadChannels } from "@/lib/channels";
 import { loadEvents } from "@/lib/data";
 import { fetchChannelPL } from "@/lib/settle";
@@ -97,6 +98,8 @@ export default async function Home() {
             </a>
           </div>
         </header>
+
+        <SeasonBanner />
 
         <ChannelPL
           totals={channelPL.totals}
