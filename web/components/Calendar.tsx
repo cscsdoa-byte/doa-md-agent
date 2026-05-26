@@ -1040,7 +1040,15 @@ export default function Calendar({
             <h3 className="text-base font-semibold leading-snug">{selected.title}</h3>
             <div className="text-xs text-gray-600 space-y-0.5">
               <div>채널: <b>[{themeOf(selected.channel_key).abbr}] {themeOf(selected.channel_key).label}</b></div>
-              {selected.event_type && <div>행사유형: <b className="text-indigo-700">{selected.event_type}</b></div>}
+              {selected.event_type ? (
+                <div>행사유형: <b className="text-indigo-700">{selected.event_type}</b></div>
+              ) : (
+                ["applied", "selected", "running", "closed"].includes(selected.status) && (
+                  <div className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 inline-block">
+                    🏷️ 행사유형 미분류 — 아래 <b>'행사 상세'</b> 펼쳐서 선택
+                  </div>
+                )
+              )}
               {selected.category && <div>카테고리: {selected.category}</div>}
               {selected.deadline_at && <div>마감: {selected.deadline_at.replace("T", " ").slice(0, 16)}</div>}
               {selected.discount_rate != null && (
