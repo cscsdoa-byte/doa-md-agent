@@ -90,13 +90,6 @@ export default async function Home() {
               🧾 토스 정산
             </Link>
             <Link
-              href="/vendors"
-              className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
-              title="채널 마스터 + 입점 관리"
-            >
-              📦 채널
-            </Link>
-            <Link
               href="/templates"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
             >
@@ -143,9 +136,15 @@ export default async function Home() {
           templates={payload.templates ?? []}
         />
 
-        <footer className="mt-8 text-xs text-slate-400 text-center">
-          데이터는 <code>data/events.json</code> 기반. 갱신:{" "}
-          <code>uv run python -m crawler.run crawl &amp;&amp; uv run python -m crawler.run dump-json</code>
+        <footer className="mt-8 text-xs text-slate-400 text-center space-y-1">
+          <div>
+            관리:{" "}
+            <Link href="/vendors" className="text-slate-500 hover:text-slate-700 hover:underline">📦 채널 마스터</Link>
+          </div>
+          <div>
+            데이터는 <code>data/events.json</code> 기반. 갱신:{" "}
+            <code>uv run python -m crawler.run crawl &amp;&amp; uv run python -m crawler.run dump-json</code>
+          </div>
         </footer>
       </div>
     </main>
