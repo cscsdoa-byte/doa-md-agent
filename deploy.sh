@@ -7,6 +7,15 @@
 set -e
 cd "$(dirname "$0")"
 
+# SSH non-login shell 에서도 uv / npm 찾을 수 있게 PATH 보정
+export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:$PATH"
+# nvm 으로 node 설치한 경우 자동 로드
+if [ -f "$HOME/.nvm/nvm.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$HOME/.nvm/nvm.sh" --no-use 2>/dev/null || true
+    nvm use --silent default 2>/dev/null || true
+fi
+
 # package-lock.json 은 npm install 이 매번 갱신해서 git pull 충돌 유발 → 자동 폐기
 git checkout -- web/package-lock.json 2>/dev/null || true
 
