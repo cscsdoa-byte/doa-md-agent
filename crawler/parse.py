@@ -67,6 +67,43 @@ def parse_deadline(title: str, posted_at: datetime | None = None) -> datetime | 
     return candidate.replace(hour=23, minute=59)
 
 
+# 카테고리/제목 → 행사 유형(event_type) 추정 매핑.
+# event_type 은 사용자 노션 컬럼 — "기획전/타임특가/오늘끝딜/라이브/모집..." 같은 행사 형태.
+# (category 는 채널이 분류한 [신선]/[리빙] 같은 머리표 → 다른 축)
+EVENT_TYPE_BY_TAG: list[tuple[str, str]] = [
+    ("오늘끝딜",   "오늘끝딜"),
+    ("타임특가",   "타임특가"),
+    ("타임딜",     "타임특가"),
+    ("쇼핑라이브", "라이브"),
+    ("라이브",     "라이브"),
+    ("기획전",     "기획전"),
+    ("푸드페스타", "기획전"),
+    ("푸드딜",     "기획전"),
+    ("모집",       "모집"),
+    ("제안",       "모집"),
+    ("입점",       "모집"),
+]
+
+
+def parse_event_type(title: str, category: str | None) -> str | None:
+    """카테고리/제목에서 event_type 자동 추정. 못 잡으면 None.
+
+    우선순위:
+      1) category 머리표가 매핑 테이블에 있으면 그 값
+      2) 제목 본문에 키워드 있으면 그 값
+    """
+    if category:
+        norm = category.replace(" ", "")
+        for tag, etype in EVENT_TYPE_BY_TAG:
+            if tag in norm:
+                return etype
+    norm_title = title.replace(" ", "")
+    for tag, etype in EVENT_TYPE_BY_TAG:
+        if tag in norm_title:
+            return etype
+    return None
+
+
 def is_doa_fit(title: str, category: str | None) -> bool:
     if category:
         clean = category.replace(" ", "")

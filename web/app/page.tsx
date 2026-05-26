@@ -140,6 +140,8 @@ export default async function Home() {
           <div>
             관리:{" "}
             <Link href="/vendors" className="text-slate-500 hover:text-slate-700 hover:underline">📦 채널 마스터</Link>
+            {" · "}
+            <Link href="/stats" className="text-slate-500 hover:text-slate-700 hover:underline">📈 ROI 통계</Link>
           </div>
           <div>
             데이터는 <code>data/events.json</code> 기반. 갱신:{" "}

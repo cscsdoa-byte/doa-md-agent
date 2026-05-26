@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 from .adapters import EventPost
+from .parse import parse_event_type
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "events.db"
 
@@ -799,6 +800,28 @@ def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat() if dt else None
 
 
+def infer_event_types(conn: sqlite3.Connection, only_null: bool = True) -> tuple[int, int]:
+    """기존 행사 일괄 추론. event_type 이 NULL 또는 비어있는 행만 (only_null=True) 채움.
+
+    Returns: (검사 건수, 업데이트 건수)
+    """
+    sql = "SELECT dedup_id, title, category, event_type FROM events"
+    if only_null:
+        sql += " WHERE event_type IS NULL OR TRIM(event_type) = ''"
+    rows = conn.execute(sql).fetchall()
+    n_check = len(rows)
+    n_updated = 0
+    for r in rows:
+        guess = parse_event_type(r["title"] or "", r["category"])
+        if guess and guess != (r["event_type"] or ""):
+            conn.execute(
+                "UPDATE events SET event_type = ? WHERE dedup_id = ?",
+                (guess, r["dedup_id"]),
+            )
+            n_updated += 1
+    return n_check, n_updated
+
+
 def upsert_events(
     conn: sqlite3.Connection,
     posts: Iterable[tuple[EventPost, str | None, datetime | None, bool]],
@@ -815,13 +838,14 @@ def upsert_events(
             "SELECT 1 FROM events WHERE dedup_id = ?", (post.dedup_id,)
         ).fetchone()
         if existing is None:
+            inferred_etype = parse_event_type(post.title, category)
             conn.execute(
                 """
                 INSERT INTO events (
                   dedup_id, channel_key, title, url, posted_at, deadline_at,
                   category, is_doa_fit, raw_text, extra_json,
-                  first_seen_at, last_seen_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  first_seen_at, last_seen_at, event_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     post.dedup_id,
@@ -836,6 +860,7 @@ def upsert_events(
                     json.dumps(post.extra, ensure_ascii=False) if post.extra else None,
                     now,
                     now,
+                    inferred_etype,
                 ),
             )
             new_count += 1

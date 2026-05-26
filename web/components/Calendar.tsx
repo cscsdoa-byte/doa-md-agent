@@ -695,6 +695,7 @@ export default function Calendar({
                   <label className="text-[11px] text-emerald-900 block mb-0.5">행사유형</label>
                   <select className="w-full text-sm border rounded px-2 py-1.5" value={newEventType} onChange={(e) => setNewEventType(e.target.value)}>
                     <option value="">— 선택 —</option>
+                    <option>모집</option>
                     <option>기획전</option>
                     <option>오늘끝딜</option>
                     <option>타임특가</option>
@@ -1549,6 +1550,7 @@ export default function Calendar({
                       <label className="text-[11px] text-gray-600 block mb-0.5">행사유형</label>
                       <select className="w-full text-sm border rounded px-2 py-1.5" value={editEventType} onChange={(e) => setEditEventType(e.target.value)}>
                         <option value="">—</option>
+                        <option>모집</option>
                         <option>기획전</option>
                         <option>오늘끝딜</option>
                         <option>타임특가</option>

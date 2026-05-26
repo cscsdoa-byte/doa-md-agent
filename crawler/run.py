@@ -27,6 +27,7 @@ from crawler.store import (
     delete_template,
     get_applied_skus,
     get_attachment,
+    infer_event_types,
     list_attachments,
     list_channels_master,
     set_sku_channel_status,
@@ -1164,6 +1165,9 @@ def main() -> None:
     pon.add_argument("kind", choices=["stock", "claim", "retro"])
     pon.add_argument("value", help="빈 문자열은 NULL")
 
+    pie = sp.add_parser("infer-event-type", help="event_type 비어있는 행사 일괄 자동 추론 (제목/카테고리 prefix 기반)")
+    pie.add_argument("--all", action="store_true", help="이미 채워진 event_type 도 덮어쓰기 (기본은 NULL 인 것만)")
+
     patt = sp.add_parser("attach-channel-totals", help="행사 기간 채널 전체 매출을 sales_json 에 attach (SKU 매칭 생략)")
     patt.add_argument("id_prefix")
     patt.add_argument("--channel", required=True, help="정산자동화웹 채널명 (예: 쇼핑엔티)")
@@ -1279,6 +1283,11 @@ def main() -> None:
         sys.exit(cmd_attach_del(args.attach_id))
     elif args.cmd == "ops-note":
         sys.exit(cmd_ops_note(args.id_prefix, args.kind, args.value))
+    elif args.cmd == "infer-event-type":
+        with connect() as conn:
+            n_check, n_updated = infer_event_types(conn, only_null=not args.all)
+        print(f"✓ {n_check}건 검사 · {n_updated}건 event_type 자동 갱신")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
