@@ -7,6 +7,9 @@
 set -e
 cd "$(dirname "$0")"
 
+# package-lock.json 은 npm install 이 매번 갱신해서 git pull 충돌 유발 → 자동 폐기
+git checkout -- web/package-lock.json 2>/dev/null || true
+
 echo "=== [1/6] git pull ==="
 git pull --rebase
 
