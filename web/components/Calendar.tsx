@@ -152,6 +152,17 @@ export default function Calendar({
   // 진행중 운영관리 — 재고/클레임 메모 drafts
   const [stockDraft, setStockDraft] = useState("");
   const [claimDraft, setClaimDraft] = useState("");
+  // 일별 매출 — lazy fetch
+  const [dailyData, setDailyData] = useState<
+    | null
+    | {
+        daily: { date: string; sale?: number; orders?: number; qty?: number }[];
+        filter: { brand: string; channel: string | null };
+        note: string;
+      }
+  >(null);
+  const [dailyLoading, setDailyLoading] = useState(false);
+  const [dailyError, setDailyError] = useState<string | null>(null);
   // 첨부(구좌 캡쳐) 업로드 상태
   const [uploadCaption, setUploadCaption] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -298,6 +309,8 @@ export default function Calendar({
       setClaimDraft(selected.ops_claim_note ?? "");
       setUploadCaption("");
       setCaptionDraft({});
+      setDailyData(null);
+      setDailyError(null);
       setSkuQuery(""); setSkuHits([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -362,6 +375,25 @@ export default function Calendar({
     if (!selected) return;
     if (!confirm(`이 캡쳐를 삭제할까요?\n${attach.caption ?? attach.original_name ?? attach.filename}`)) return;
     await apiCall("attach-del", `/api/event/${selected.short_id}/attachment/${attach.id}`, "DELETE");
+  }
+
+  async function fetchDaily() {
+    if (!selected) return;
+    setDailyError(null);
+    setDailyLoading(true);
+    try {
+      const r = await fetch(apiUrl(`/api/event/${selected.short_id}/daily`));
+      const j = await r.json();
+      if (!r.ok) {
+        setDailyError(j.error || `HTTP ${r.status}`);
+        return;
+      }
+      setDailyData(j);
+    } catch (e) {
+      setDailyError((e as Error).message);
+    } finally {
+      setDailyLoading(false);
+    }
   }
 
   async function handleAttachCaption(attach: EventAttachment) {
@@ -947,7 +979,22 @@ export default function Calendar({
                         title={`${th.label} · ${e.title}`}
                       >
                         <span className={`font-mono font-extrabold shrink-0 text-[11px] ${th.bold}`}>{th.abbr}</span>
-                        {isUrgent && <span className="text-red-600 font-bold shrink-0" title="마감 임박">⚠</span>}
+                        {isUrgent && (
+                          <span
+                            className={`shrink-0 px-1 rounded text-[10px] font-extrabold ${
+                              d === 0
+                                ? "bg-red-600 text-white"
+                                : d === 1
+                                ? "bg-red-500 text-white"
+                                : d === 2
+                                ? "bg-orange-500 text-white"
+                                : "bg-amber-400 text-amber-950"
+                            }`}
+                            title={`마감 D-${d}`}
+                          >
+                            D-{d}
+                          </span>
+                        )}
                         {hasConflict && <span className="text-orange-600 font-bold shrink-0" title="다른 채널과 같은 SKU·기간 충돌">⚡</span>}
                         <span className="truncate">
                           {e.title.replace(/^\[[^\]]+\]\s*/, "")}
@@ -1137,6 +1184,87 @@ export default function Calendar({
               </div>
             </div>
 
+            {/* 구좌 노출 캡쳐 — 어디에 들어가는지 시각 기록 */}
+            <div>
+              <label className="text-xs text-gray-600 block mb-1">
+                📸 구좌 노출 캡쳐 ({selected.attachments?.length ?? 0})
+              </label>
+              {selected.attachments && selected.attachments.length > 0 && (
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  {selected.attachments.map((a) => {
+                    const draft = captionDraft[a.id] ?? a.caption ?? "";
+                    const dirty = draft !== (a.caption ?? "");
+                    return (
+                      <div key={a.id} className="border rounded bg-white p-1.5 text-[11px] space-y-1">
+                        <a
+                          href={apiUrl(`/api/event/${selected.short_id}/attachment/${a.id}`)}
+                          target="_blank"
+                          rel="noopener"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={apiUrl(`/api/event/${selected.short_id}/attachment/${a.id}`)}
+                            alt={a.caption ?? a.original_name ?? ""}
+                            className="w-full h-24 object-cover rounded bg-slate-100"
+                          />
+                        </a>
+                        <input
+                          type="text"
+                          value={draft}
+                          placeholder="예: 메인 배너 1번 슬롯"
+                          className="w-full text-[11px] border rounded px-1.5 py-0.5"
+                          onChange={(e) =>
+                            setCaptionDraft((s) => ({ ...s, [a.id]: e.target.value }))
+                          }
+                          onBlur={() => dirty && handleAttachCaption(a)}
+                        />
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-slate-400 truncate max-w-[110px]" title={a.original_name ?? ""}>
+                            {a.size_bytes ? `${Math.round(a.size_bytes / 1024)}KB` : ""}
+                          </span>
+                          <button
+                            className="text-[10px] text-red-600 hover:underline"
+                            onClick={() => handleAttachDelete(a)}
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <input
+                type="text"
+                placeholder="캡션 (선택, 예: 카테고리 탭 상단)"
+                className="w-full text-xs border rounded px-2 py-1 mb-1"
+                value={uploadCaption}
+                onChange={(e) => setUploadCaption(e.target.value)}
+              />
+              <label className="block">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp"
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleAttachUpload(f);
+                    e.target.value = "";
+                  }}
+                />
+                <span
+                  className={`block w-full text-center text-xs px-2 py-1.5 rounded cursor-pointer ${
+                    uploading
+                      ? "bg-slate-200 text-slate-500"
+                      : "bg-slate-700 text-white hover:bg-slate-800"
+                  }`}
+                >
+                  {uploading ? "업로드 중…" : "📷 캡쳐 추가 (PNG/JPG/GIF/WEBP, ≤10MB)"}
+                </span>
+              </label>
+            </div>
+
             {/* 매출 매칭 */}
             <div>
               <label className="text-xs text-gray-600 block mb-1">매출 매칭 (정산자동화웹)</label>
@@ -1159,6 +1287,59 @@ export default function Calendar({
                 {busy === "sales" ? "정산자동화웹 호출 중…" : "💰 매출 매칭 (정산자동화웹 호출)"}
               </button>
             </div>
+
+            {/* 일별 매출 (진행기간 기준 채널·브랜드 합계) */}
+            {selected.sale_start && selected.sale_end && (
+              <div>
+                <label className="text-xs text-gray-600 block mb-1">📈 일별 매출 추적</label>
+                {dailyData ? (() => {
+                  const max = Math.max(1, ...dailyData.daily.map((d) => d.sale ?? 0));
+                  const sum = dailyData.daily.reduce((s, d) => s + (d.sale ?? 0), 0);
+                  return (
+                    <div className="bg-slate-50 border rounded p-2 text-[11px] space-y-1">
+                      <div className="text-[10px] text-slate-500">
+                        {dailyData.filter.channel ?? "전 채널"} · {dailyData.filter.brand} · 합계 <b>{Math.round(sum).toLocaleString()}원</b>
+                      </div>
+                      {dailyData.daily.length === 0 ? (
+                        <div className="text-slate-400 italic">데이터 없음</div>
+                      ) : (
+                        <div className="space-y-0.5">
+                          {dailyData.daily.map((d) => {
+                            const v = d.sale ?? 0;
+                            const w = Math.round((v / max) * 100);
+                            return (
+                              <div key={d.date} className="flex items-center gap-2">
+                                <span className="w-12 text-slate-600">{d.date.slice(5)}</span>
+                                <div className="flex-1 bg-white rounded h-3 overflow-hidden border">
+                                  <div
+                                    className="h-full bg-emerald-500"
+                                    style={{ width: `${w}%` }}
+                                    title={`${Math.round(v).toLocaleString()}원`}
+                                  />
+                                </div>
+                                <span className="w-20 text-right text-slate-700 tabular-nums">{Math.round(v).toLocaleString()}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div className="text-[10px] text-slate-400 mt-1">※ {dailyData.note}</div>
+                    </div>
+                  );
+                })() : dailyError ? (
+                  <div className="text-xs text-red-600">{dailyError}</div>
+                ) : (
+                  <div className="text-[11px] text-slate-400 italic mb-1">버튼 누르면 정산자동화웹 daily 호출</div>
+                )}
+                <button
+                  className="w-full mt-1 text-xs px-2 py-1.5 bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
+                  disabled={dailyLoading}
+                  onClick={fetchDaily}
+                >
+                  {dailyLoading ? "불러오는 중…" : dailyData ? "🔄 새로고침" : "📈 일별 매출 보기"}
+                </button>
+              </div>
+            )}
 
             {/* 광고비 + ROAS */}
             <div>
@@ -1197,6 +1378,48 @@ export default function Calendar({
                 );
               })()}
             </div>
+
+            {/* 진행중 운영관리 — 재고 / 클레임 메모 */}
+            {(selected.status === "running" || selected.status === "selected" ||
+              selected.ops_stock_note || selected.ops_claim_note) && (
+              <div className="border-t pt-3 space-y-2">
+                <div className="text-xs font-semibold text-pink-900">🛠️ 진행중 운영관리</div>
+                <div>
+                  <label className="text-xs text-gray-600 block mb-1">📦 재고 메모</label>
+                  <textarea
+                    rows={2}
+                    className="w-full text-sm border rounded px-2 py-1.5"
+                    placeholder="예: 5/26 새벽 입고 80박스, 6/2까지 추가 발주 필요"
+                    value={stockDraft}
+                    onChange={(e) => setStockDraft(e.target.value)}
+                  />
+                  <button
+                    className="text-xs px-2 py-1 mt-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                    disabled={busy !== null || stockDraft === (selected.ops_stock_note ?? "")}
+                    onClick={() => saveOpsNote("stock", stockDraft)}
+                  >
+                    {busy === "ops-stock" ? "저장 중…" : "재고 메모 저장"}
+                  </button>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-600 block mb-1">🚨 클레임 / 이슈</label>
+                  <textarea
+                    rows={2}
+                    className="w-full text-sm border rounded px-2 py-1.5"
+                    placeholder="예: 5/24 배송지연 5건, MD에 사과 안내 완료"
+                    value={claimDraft}
+                    onChange={(e) => setClaimDraft(e.target.value)}
+                  />
+                  <button
+                    className="text-xs px-2 py-1 mt-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                    disabled={busy !== null || claimDraft === (selected.ops_claim_note ?? "")}
+                    onClick={() => saveOpsNote("claim", claimDraft)}
+                  >
+                    {busy === "ops-claim" ? "저장 중…" : "클레임 메모 저장"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* 담당 MD — 행사별 owner (md_owner_name) 우선, 없으면 채널 contacts */}
             {selected.md_owner_name ? (

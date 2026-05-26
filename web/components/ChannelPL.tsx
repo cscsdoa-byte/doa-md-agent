@@ -162,6 +162,58 @@ export default function ChannelPL({ totals, range, channels, events }: Props) {
         </div>
       )}
 
+      {/* 2-C) 행사 유형별(event_type) PL — 행사 데이터 기반 */}
+      {(() => {
+        type Agg = { key: string; count: number; sale: number; op: number };
+        const byType: Record<string, Agg> = {};
+        for (const e of events) {
+          if (!COUNTED_STATUSES.has(e.status)) continue;
+          if (!e.sale_start || !e.sale_end) continue;
+          const k = (e.event_type && e.event_type.trim()) || "(미분류)";
+          if (!byType[k]) byType[k] = { key: k, count: 0, sale: 0, op: 0 };
+          byType[k].count++;
+          const t = e.sales?.totals;
+          if (t) {
+            byType[k].sale += t.sale ?? 0;
+            byType[k].op += t.operating_profit ?? 0;
+          }
+        }
+        const rows = Object.values(byType).sort((a, b) => b.sale - a.sale);
+        if (rows.length === 0) return null;
+        const grandSale = rows.reduce((s, r) => s + r.sale, 0);
+        return (
+          <div>
+            <div className="text-sm font-semibold text-slate-700 mb-2">
+              🎫 행사 유형별 PL ({rows.length}종) — 진행 중·종료 행사 합산
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+              {rows.map((r) => {
+                const margin = r.sale > 0 ? (r.op / r.sale) * 100 : 0;
+                const share = grandSale > 0 ? (r.sale / grandSale) * 100 : 0;
+                return (
+                  <div key={r.key} className="bg-indigo-50 border border-indigo-200 rounded p-2">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-xs font-semibold text-indigo-900 truncate" title={r.key}>{r.key}</span>
+                      <span className="text-[10px] bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded font-bold">
+                        {r.count}건
+                      </span>
+                    </div>
+                    {r.sale > 0 ? (
+                      <div className="text-[11px] space-y-0.5">
+                        <div>매출 <b className="text-indigo-900">{fmt(r.sale)}</b>원 <span className="text-[10px] text-slate-500">({share.toFixed(1)}%)</span></div>
+                        <div>영업이익 <b className="text-emerald-700">{fmt(r.op)}</b>원 ({margin.toFixed(1)}%)</div>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-slate-500">매출 미수집</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* 2-B) 매출만 있고 행사는 없는 채널 (회색 톤) */}
       {withoutEvents.length > 0 && (
         <div>

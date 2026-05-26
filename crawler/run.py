@@ -21,6 +21,7 @@ from crawler.store import (
     connect,
     delete_attachment,
     delete_attachments_for_event,
+    delete_channel_master,
     delete_contact,
     delete_event,
     delete_template,
@@ -42,8 +43,10 @@ from crawler.store import (
     set_status,
     stats,
     update_attachment_caption,
+    update_channel_master_meta,
     update_contact,
     update_event_fields,
+    upsert_channel_master,
     upsert_events,
 )
 
@@ -639,6 +642,58 @@ def cmd_sync_channels(dry: bool) -> int:
     return sync(dry)
 
 
+def cmd_channel_meta(
+    settle_name: str,
+    status: str | None,
+    priority: str | None,
+    note: str | None,
+    url: str | None,
+) -> int:
+    """채널 마스터 운영 메타필드 (status/priority/note/url) 업데이트."""
+    with connect() as conn:
+        ok = update_channel_master_meta(conn, settle_name, status, priority, note, url)
+    if ok:
+        print(f"✓ 채널 메타 업데이트: {settle_name}")
+        return 0
+    print(f"ERROR: '{settle_name}' 못 찾음 또는 변경 없음", file=sys.stderr)
+    return 1
+
+
+def cmd_channel_add_manual(
+    settle_name: str,
+    display_name: str,
+    is_sales: bool,
+    abbr: str | None,
+    default_fee_rate: float | None,
+    yaml_key: str | None,
+) -> int:
+    """수동으로 채널 추가 (정산자동화웹에 없는 채널 — NS홈쇼핑 등)."""
+    with connect() as conn:
+        upsert_channel_master(
+            conn,
+            settle_name=settle_name,
+            display_name=display_name,
+            yaml_key=yaml_key,
+            is_sales=is_sales,
+            abbr=abbr,
+            default_fee_rate=default_fee_rate,
+            source="manual",
+        )
+    print(f"✓ 채널 추가: {settle_name} ({display_name})")
+    return 0
+
+
+def cmd_channel_delete(settle_name: str) -> int:
+    """채널 마스터 삭제."""
+    with connect() as conn:
+        ok = delete_channel_master(conn, settle_name)
+    if ok:
+        print(f"✓ 채널 삭제: {settle_name}")
+        return 0
+    print(f"ERROR: '{settle_name}' 못 찾음", file=sys.stderr)
+    return 1
+
+
 def cmd_channel_list() -> int:
     with connect() as conn:
         rows = list_channels_master(conn)
@@ -1014,6 +1069,24 @@ def main() -> None:
 
     pchl = sp.add_parser("channel-list", help="채널 마스터 목록")
 
+    pchm = sp.add_parser("channel-meta", help="채널 메타 업데이트 (status/priority/note/url)")
+    pchm.add_argument("settle_name")
+    pchm.add_argument("--status", default=None, help="활성/검토중/보류/제외 등")
+    pchm.add_argument("--priority", default=None, help="높음/보통/낮음")
+    pchm.add_argument("--note", default=None)
+    pchm.add_argument("--url", default=None, help="입점/관리 URL")
+
+    pcham = sp.add_parser("channel-add-manual", help="수동 채널 추가 (정산자동화웹에 없는 채널)")
+    pcham.add_argument("settle_name")
+    pcham.add_argument("display_name")
+    pcham.add_argument("--info", action="store_true", help="설정하면 정보 채널 (기본=판매)")
+    pcham.add_argument("--abbr", default=None)
+    pcham.add_argument("--fee", type=float, default=None, help="기본 수수료율 (예: 0.15)")
+    pcham.add_argument("--yaml-key", default=None)
+
+    pchd = sp.add_parser("channel-del", help="채널 마스터 삭제")
+    pchd.add_argument("settle_name")
+
     ptl = sp.add_parser("template-list", help="반복 행사 템플릿 목록")
 
     pta = sp.add_parser("template-add", help="반복 행사 템플릿 추가")
@@ -1148,6 +1221,15 @@ def main() -> None:
         sys.exit(cmd_sync_channels(args.dry))
     elif args.cmd == "channel-list":
         sys.exit(cmd_channel_list())
+    elif args.cmd == "channel-meta":
+        sys.exit(cmd_channel_meta(args.settle_name, args.status, args.priority, args.note, args.url))
+    elif args.cmd == "channel-add-manual":
+        sys.exit(cmd_channel_add_manual(
+            args.settle_name, args.display_name, not args.info,
+            args.abbr, args.fee, args.yaml_key,
+        ))
+    elif args.cmd == "channel-del":
+        sys.exit(cmd_channel_delete(args.settle_name))
     elif args.cmd == "template-list":
         sys.exit(cmd_template_list())
     elif args.cmd == "template-add":

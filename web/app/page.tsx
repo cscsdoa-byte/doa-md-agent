@@ -48,6 +48,13 @@ export default async function Home() {
               🧾 토스 정산
             </Link>
             <Link
+              href="/vendors"
+              className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
+              title="채널 마스터 + 입점 관리"
+            >
+              📦 채널
+            </Link>
+            <Link
               href="/templates"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
             >

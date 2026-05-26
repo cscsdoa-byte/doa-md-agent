@@ -121,6 +121,17 @@ export interface DashboardBreakdownRow {
   operating_profit?: number;
 }
 
+export interface DashboardDailyRow {
+  date: string;
+  sale?: number;
+  cost?: number;
+  fee?: number;
+  shipping?: number;
+  operating_profit?: number;
+  orders?: number;
+  qty?: number;
+}
+
 export interface DashboardSummary {
   range: { start: string; end: string };
   filter: { brand: string | null; channel: string | null };
@@ -128,6 +139,7 @@ export interface DashboardSummary {
   totals: DashboardTotals;
   prev_totals?: DashboardTotals;
   breakdown?: DashboardBreakdownRow[];
+  daily?: DashboardDailyRow[];
 }
 
 /** 정산자동화웹 dashboard summary — 매출/원가/광고비 진실의 원천. */
@@ -183,6 +195,16 @@ export async function fetchBrandPL(): Promise<{ brand: string; data: DashboardSu
     })),
   );
   return [...results];
+}
+
+/** 정산자동화웹 facets — 가능한 채널/브랜드 목록. */
+export async function fetchSettleFacets(): Promise<{ channels: string[]; brands?: string[] }> {
+  try {
+    const data = await get<{ channels?: string[]; brands?: string[] }>("/api/dashboard/facets");
+    return { channels: data.channels ?? [], brands: data.brands };
+  } catch {
+    return { channels: [] };
+  }
 }
 
 export interface ChannelAgg {

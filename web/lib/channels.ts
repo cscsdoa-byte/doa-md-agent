@@ -24,6 +24,7 @@ const SALES_CHANNEL_KEYS = new Set([
 ]);
 
 let cached: ChannelDef[] | null = null;
+let settleMapCached: Record<string, string[]> | null = null;
 
 export async function loadChannels(): Promise<ChannelDef[]> {
   if (cached) return cached;
@@ -59,5 +60,35 @@ export async function loadChannels(): Promise<ChannelDef[]> {
     return channels;
   } catch {
     return [];
+  }
+}
+
+/** channels.yaml 의 settle_channels 매핑 — key → 정산자동화웹 채널명 리스트. */
+export async function loadChannelSettleMap(): Promise<Record<string, string[]>> {
+  if (settleMapCached) return settleMapCached;
+  try {
+    const yamlPath = join(process.cwd(), "..", "crawler", "channels.yaml");
+    const raw = await readFile(yamlPath, "utf-8");
+    const map: Record<string, string[]> = {};
+    let curKey: string | null = null;
+    for (const line of raw.split(/\r?\n/)) {
+      const keyMatch = line.match(/^\s*-\s+key:\s*(.+?)\s*$/);
+      if (keyMatch) {
+        curKey = keyMatch[1];
+        continue;
+      }
+      const sm = line.match(/^\s+settle_channels:\s*\[(.*?)\]/);
+      if (sm && curKey) {
+        const list = sm[1]
+          .split(",")
+          .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+          .filter(Boolean);
+        map[curKey] = list;
+      }
+    }
+    settleMapCached = map;
+    return map;
+  } catch {
+    return {};
   }
 }

@@ -94,6 +94,23 @@ export interface EventTemplate {
   updated_at: string;
 }
 
+export interface ChannelMaster {
+  settle_name: string;       // PK — 정산자동화웹 채널명 또는 manual 채널의 식별자
+  display_name: string;
+  yaml_key: string | null;
+  is_sales: number;          // 1 = 판매, 0 = 정보
+  abbr: string | null;
+  default_fee_rate: number | null;
+  source: string;            // "settle" / "yaml" / "manual"
+  last_synced_at: string | null;
+  status: string | null;     // "활성" / "검토중" / "보류" / "제외"
+  priority: string | null;
+  note: string | null;
+  url: string | null;
+  sku_matrix_json: string | null;
+  created_at: string;
+}
+
 export interface EventsPayload {
   generated_at: string;
   total: number;
@@ -102,6 +119,7 @@ export interface EventsPayload {
   events: EventItem[];
   contacts?: Contact[];
   templates?: EventTemplate[];
+  channels_master?: ChannelMaster[];
 }
 
 const DATA_PATH = join(process.cwd(), "..", "data", "events.json");

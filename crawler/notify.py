@@ -1,4 +1,4 @@
-"""슬랙 알림 — 마감 임박 행사 / 라이브 행사 / 신규 도아 적합 공고.
+"""슬랙 알림 — 마감 임박 행사 / 라이브 행사 / 신규 도아 적합 공고 + 셀러센터 세션 만료.
 
 사용:  uv run python -m crawler.notify        # 한 번 알림
        uv run python -m crawler.notify --dry  # 슬랙 전송 없이 콘솔에만 출력
@@ -12,13 +12,19 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx
+import yaml
 from dotenv import load_dotenv
 
 from .store import connect, list_recent, list_recent_no_deadline
+
+CHANNELS_YAML = Path(__file__).resolve().parent / "channels.yaml"
+STORAGE_DIR = Path(__file__).resolve().parent / "storage"
+# 셀러센터 세션은 보통 30일 정도 유지 — 25일 넘으면 갱신 권장
+SESSION_WARN_DAYS = 25
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure") and (_stream.encoding or "").lower() != "utf-8":
@@ -54,6 +60,55 @@ def load_state() -> dict:
 def save_state(state: dict) -> None:
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def check_session_expiry() -> list[dict]:
+    """auth=session 채널의 storage state 파일을 점검.
+
+    반환: [{key, name, status: "missing"|"stale", age_days?, login_url}, ...]
+    status:
+      missing — storage 파일 자체가 없음 (수동 로그인 한 번도 안 함)
+      stale   — 파일이 SESSION_WARN_DAYS 이상 오래됨 (만료 직전 또는 만료됨)
+    """
+    if not CHANNELS_YAML.exists():
+        return []
+    try:
+        with CHANNELS_YAML.open(encoding="utf-8") as f:
+            channels = yaml.safe_load(f).get("channels", [])
+    except Exception:
+        return []
+    issues: list[dict] = []
+    now = datetime.now()
+    for ch in channels:
+        if ch.get("auth") != "session":
+            continue
+        key = ch.get("key")
+        if not key:
+            continue
+        path = STORAGE_DIR / f"{key}.json"
+        login_url = ((ch.get("urls") or {}).get("login")) or ""
+        if not path.exists():
+            issues.append({
+                "key": key,
+                "name": ch.get("name", key),
+                "status": "missing",
+                "login_url": login_url,
+            })
+            continue
+        try:
+            mtime = datetime.fromtimestamp(path.stat().st_mtime)
+        except OSError:
+            continue
+        age_days = (now - mtime).days
+        if age_days >= SESSION_WARN_DAYS:
+            issues.append({
+                "key": key,
+                "name": ch.get("name", key),
+                "status": "stale",
+                "age_days": age_days,
+                "login_url": login_url,
+            })
+    return issues
 
 
 def build_message() -> tuple[str, list[dict]]:
@@ -125,6 +180,21 @@ def build_message() -> tuple[str, list[dict]]:
         for e in recent:
             lines.append(_fmt(e))
             notified.append({"id": e["dedup_id"], "kind": "nodl"})
+
+    # 셀러센터 세션 점검 — auth=session 채널의 storage 파일 만료/누락
+    sessions = check_session_expiry()
+    if sessions:
+        lines.append(f"\n🔐 *셀러센터 세션 점검 — {len(sessions)}건* (재로그인 필요)")
+        for s in sessions:
+            if s["status"] == "missing":
+                lines.append(f"• ❌ *{s['name']}* — 세션 파일 없음 (bootstrap_session 첫 로그인 필요)")
+            else:
+                lines.append(
+                    f"• ⏰ *{s['name']}* — 세션 {s['age_days']}일 경과 (≥{SESSION_WARN_DAYS}일, 갱신 권장)"
+                )
+            if s.get("login_url"):
+                lines.append(f"  → {s['login_url']}")
+            notified.append({"id": f"session:{s['key']}:{s['status']}", "kind": "session"})
 
     if len(lines) == 1:
         lines.append("\n(알림 대상 없음 — 오늘은 조용한 날)")

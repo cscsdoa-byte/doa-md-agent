@@ -531,6 +531,38 @@ def delete_channel_master(conn: sqlite3.Connection, settle_name: str) -> bool:
     return cur.rowcount > 0
 
 
+def update_channel_master_meta(
+    conn: sqlite3.Connection,
+    settle_name: str,
+    status: str | None = None,
+    priority: str | None = None,
+    note: str | None = None,
+    url: str | None = None,
+) -> bool:
+    """채널 마스터의 운영 메타필드만 업데이트 (sync 와 충돌 안 함).
+
+    None = 변경 안 함, 빈 문자열 = NULL 클리어.
+    """
+    fields = []
+    params: list = []
+    for col, val in (("status", status), ("priority", priority), ("note", note), ("url", url)):
+        if val is None:
+            continue
+        if val == "":
+            fields.append(f"{col} = NULL")
+        else:
+            fields.append(f"{col} = ?")
+            params.append(val)
+    if not fields:
+        return False
+    params.append(settle_name)
+    cur = conn.execute(
+        f"UPDATE channels_master SET {', '.join(fields)} WHERE settle_name = ?",
+        params,
+    )
+    return cur.rowcount > 0
+
+
 def update_event_fields(
     conn: sqlite3.Connection,
     dedup_id: str,
