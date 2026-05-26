@@ -478,7 +478,7 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
                   <ul className="text-xs space-y-0.5">
                     {selectedDetail.applied_skus.map((s, i) => (
                       <li key={i}>
-                        {s.sku_name ?? `#${s.sku_id}`} — {s.sale_price.toLocaleString()}원 × {s.qty_est}건
+                        {s.sku_name ?? `#${s.sku_id}`} — {s.sale_price.toLocaleString()}원
                       </li>
                     ))}
                   </ul>

@@ -115,7 +115,6 @@ export default function Calendar({
   const [periodEnd, setPeriodEnd] = useState("");
   const [skuId, setSkuId] = useState("");
   const [skuPrice, setSkuPrice] = useState("");
-  const [skuQty, setSkuQty] = useState("");
   // 본문 수정 (수동 등록 행사 한정)
   const [editTitle, setEditTitle] = useState("");
   const [editDeadline, setEditDeadline] = useState("");
@@ -191,7 +190,6 @@ export default function Calendar({
   const [newSkuSearching, setNewSkuSearching] = useState(false);
   const [newPickedSku, setNewPickedSku] = useState<{ id: number; product_name: string; cost: number; shipping_fee: number } | null>(null);
   const [newSkuPrice, setNewSkuPrice] = useState("");
-  const [newSkuQty, setNewSkuQty] = useState("");
   const [newAdSpend, setNewAdSpend] = useState("");
 
   // 빈 날짜 칸 클릭 → 그 날짜로 새 행사 폼 prefill + 펼치기
@@ -291,7 +289,6 @@ export default function Calendar({
       setPeriodEnd(selected.sale_end ?? "");
       setSkuId("");
       setSkuPrice("");
-      setSkuQty("");
       setEditTitle(selected.title);
       setEditDeadline(selected.deadline_at ? selected.deadline_at.slice(0, 10) : "");
       setEditCategory(selected.category ?? "");
@@ -455,7 +452,6 @@ export default function Calendar({
     if (!selected) return;
     const id = parseInt(skuId, 10);
     const price = parseInt(skuPrice, 10);
-    const qty = parseInt(skuQty || "0", 10);
     if (!id || !price) {
       setError("SKU id, 행사가 필수");
       return;
@@ -463,10 +459,9 @@ export default function Calendar({
     const ok = await apiCall("register", `/api/event/${selected.short_id}/register`, "POST", {
       sku_id: id,
       sale_price: price,
-      qty,
     });
     if (ok) {
-      setSkuId(""); setSkuPrice(""); setSkuQty("");
+      setSkuId(""); setSkuPrice("");
     }
   }
   async function removeSku(sku_id: number) {
@@ -528,7 +523,6 @@ export default function Calendar({
           body: JSON.stringify({
             sku_id: newPickedSku.id,
             sale_price: parseInt(newSkuPrice, 10),
-            qty: parseInt(newSkuQty || "0", 10) || 0,
           }),
         });
       }
@@ -547,7 +541,7 @@ export default function Calendar({
       setNewTitle(""); setNewDeadline(""); setNewCategory(""); setNewMemo("");
       setNewSaleStart(""); setNewSaleEnd("");
       setNewSkuQuery(""); setNewSkuHits([]); setNewPickedSku(null);
-      setNewSkuPrice(""); setNewSkuQty(""); setNewAdSpend("");
+      setNewSkuPrice(""); setNewAdSpend("");
       setNewEventType(""); setNewDiscount(""); setNewBurden("");
       setNewExpected(""); setNewVendor(""); setNewVendorContact("");
       setNewOpen(false);
@@ -774,7 +768,7 @@ export default function Calendar({
                   <button
                     type="button"
                     className="text-red-600 hover:text-red-800 ml-2"
-                    onClick={() => { setNewPickedSku(null); setNewSkuPrice(""); setNewSkuQty(""); }}
+                    onClick={() => { setNewPickedSku(null); setNewSkuPrice(""); }}
                     title="SKU 선택 해제"
                   >
                     ×
@@ -799,7 +793,7 @@ export default function Calendar({
               )}
 
               {newPickedSku && (
-                <div className="grid grid-cols-3 gap-2 mt-2">
+                <div className="grid grid-cols-2 gap-2 mt-2">
                   <div>
                     <label className="text-[11px] text-emerald-900 block mb-0.5">행사가 (원) *</label>
                     <input
@@ -808,16 +802,6 @@ export default function Calendar({
                       className="w-full text-sm border rounded px-2 py-1.5"
                       value={newSkuPrice}
                       onChange={(e) => setNewSkuPrice(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-emerald-900 block mb-0.5">예상 수량</label>
-                    <input
-                      type="number"
-                      placeholder="100"
-                      className="w-full text-sm border rounded px-2 py-1.5"
-                      value={newSkuQty}
-                      onChange={(e) => setNewSkuQty(e.target.value)}
                     />
                   </div>
                   <div>
@@ -1138,7 +1122,7 @@ export default function Calendar({
                   // 주의: cost/ship 은 정산자동화웹 SKU 마스터에서 fetch 해야 정확. 일단 단순 prefill.
                   return (
                     <div key={s.sku_id} className="flex items-center justify-between text-xs bg-violet-50 px-2 py-1 rounded">
-                      <span className="flex-1 truncate">{s.sku_name ?? `#${s.sku_id}`} · {s.sale_price.toLocaleString()}원 · {s.qty_est}건</span>
+                      <span className="flex-1 truncate">{s.sku_name ?? `#${s.sku_id}`} · {s.sale_price.toLocaleString()}원</span>
                       <a
                         href={simUrl}
                         target="_blank"
@@ -1190,9 +1174,8 @@ export default function Calendar({
               {skuId && (
                 <div className="text-[11px] text-violet-700 mt-1">선택된 SKU id: <b>{skuId}</b></div>
               )}
-              <div className="grid grid-cols-2 gap-1 mt-1">
-                <input type="number" placeholder="행사가 (원)" className="text-xs border rounded px-2 py-1" value={skuPrice} onChange={(e) => setSkuPrice(e.target.value)} />
-                <input type="number" placeholder="수량" className="text-xs border rounded px-2 py-1" value={skuQty} onChange={(e) => setSkuQty(e.target.value)} />
+              <div className="mt-1">
+                <input type="number" placeholder="행사가 (원)" className="w-full text-xs border rounded px-2 py-1" value={skuPrice} onChange={(e) => setSkuPrice(e.target.value)} />
               </div>
               <div className="flex justify-end mt-1">
                 <button className="text-xs px-2 py-1 bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50" disabled={busy !== null || !skuId} onClick={addSku}>
