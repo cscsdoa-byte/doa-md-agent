@@ -1,10 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { apiUrl } from "@/lib/api";
 import type { EventItem } from "@/lib/data";
 import { themeOf } from "@/lib/channelTheme";
+
+type SortKey = "endSoon" | "sale" | "op" | "cannibal";
+
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "endSoon",  label: "🏁 종료 임박" },
+  { value: "sale",     label: "💰 매출 큰 순" },
+  { value: "op",       label: "🟢 영업이익 큰 순" },
+  { value: "cannibal", label: "⚡ 카니발 우선" },
+];
 
 interface ConflictInfo {
   other_short: string;
@@ -39,6 +49,52 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function OpsBoard({ events, conflicts = {} }: Props) {
+  const router = useRouter();
+  const [sortKey, setSortKey] = useState<SortKey>("endSoon");
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const sorted = useMemo(() => {
+    const arr = [...events];
+    arr.sort((a, b) => {
+      if (sortKey === "endSoon") {
+        if (a.status !== b.status) return a.status === "running" ? -1 : 1;
+        return (a.sale_end ?? "9999").localeCompare(b.sale_end ?? "9999");
+      }
+      if (sortKey === "sale") {
+        return (b.sales?.totals?.sale ?? 0) - (a.sales?.totals?.sale ?? 0);
+      }
+      if (sortKey === "op") {
+        return (b.sales?.totals?.operating_profit ?? 0) - (a.sales?.totals?.operating_profit ?? 0);
+      }
+      // cannibal
+      const ac = conflicts[a.dedup_id]?.length ?? 0;
+      const bc = conflicts[b.dedup_id]?.length ?? 0;
+      if (ac !== bc) return bc - ac;
+      return (a.sale_end ?? "9999").localeCompare(b.sale_end ?? "9999");
+    });
+    return arr;
+  }, [events, sortKey, conflicts]);
+
+  async function refreshSales(short_id: string) {
+    setError(null);
+    setRefreshingId(short_id);
+    try {
+      const r = await fetch(apiUrl(`/api/event/${short_id}/sales`), { method: "POST" });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setError(j.error || `HTTP ${r.status}`);
+        return;
+      }
+      startTransition(() => router.refresh());
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setRefreshingId(null);
+    }
+  }
+
   const totals = useMemo(() => {
     let sale = 0;
     let op = 0;
@@ -91,9 +147,30 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
         </div>
       </div>
 
+      {/* 정렬 토글 */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-1 text-xs">
+          <span className="text-slate-500 mr-1">정렬</span>
+          {SORT_OPTIONS.map((o) => (
+            <button
+              key={o.value}
+              onClick={() => setSortKey(o.value)}
+              className={`px-2 py-1 rounded border ${
+                sortKey === o.value
+                  ? "bg-slate-800 text-white border-slate-800"
+                  : "bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        {error && <div className="text-xs text-red-600">{error}</div>}
+      </div>
+
       {/* 카드 그리드 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {events.map((e) => {
+        {sorted.map((e) => {
           const th = themeOf(e.channel_key);
           const dEnd = daysUntil(e.sale_end);
           const sale = e.sales?.totals?.sale ?? 0;
@@ -187,7 +264,25 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
               </div>
 
               {/* 매출 / 광고 / 마진 */}
-              <div className="px-3 py-2 bg-white border-t grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
+              <div className="px-3 py-2 bg-white border-t grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] relative">
+                <button
+                  className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded border border-emerald-200 hover:bg-emerald-200 disabled:opacity-50"
+                  disabled={
+                    refreshingId !== null ||
+                    (e.applied_skus?.length ?? 0) === 0 ||
+                    !e.sale_start || !e.sale_end
+                  }
+                  title={
+                    (e.applied_skus?.length ?? 0) === 0
+                      ? "SKU 등록 필요"
+                      : !e.sale_start
+                      ? "진행기간 설정 필요"
+                      : "정산자동화웹 매출 매칭"
+                  }
+                  onClick={() => refreshSales(e.short_id)}
+                >
+                  {refreshingId === e.short_id ? "…" : "🔄 매출"}
+                </button>
                 <div>
                   <span className="text-slate-500">매출 </span>
                   <b className="text-amber-800">{fmt(sale)}</b>원
