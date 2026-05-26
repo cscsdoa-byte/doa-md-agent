@@ -126,6 +126,7 @@ export default function Calendar({
   const [editExpected, setEditExpected] = useState("");
   const [editVendor, setEditVendor] = useState("");
   const [editVendorContact, setEditVendorContact] = useState("");
+  const [editOwner, setEditOwner] = useState("");
   const [showEdit, setShowEdit] = useState(false);
   // SKU 검색 (우측 패널)
   const [skuQuery, setSkuQuery] = useState("");
@@ -173,6 +174,18 @@ export default function Calendar({
   const [newSkuPrice, setNewSkuPrice] = useState("");
   const [newSkuQty, setNewSkuQty] = useState("");
   const [newAdSpend, setNewAdSpend] = useState("");
+
+  // 빈 날짜 칸 클릭 → 그 날짜로 새 행사 폼 prefill + 펼치기
+  function openNewEventForDate(dateKey: string) {
+    setNewSaleStart(dateKey);
+    setNewSaleEnd(dateKey);
+    setNewOpen(true);
+    if (typeof window !== "undefined") {
+      setTimeout(() => {
+        document.getElementById("new-event-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
+    }
+  }
 
   async function searchSkusForNew() {
     if (!newSkuQuery.trim()) {
@@ -269,6 +282,7 @@ export default function Calendar({
       setEditExpected(selected.expected_revenue != null ? String(selected.expected_revenue) : "");
       setEditVendor(selected.vendor_name ?? "");
       setEditVendorContact(selected.vendor_contact ?? "");
+      setEditOwner(selected.md_owner_name ?? "");
       setShowEdit(false);
       setAdSpendDraft(selected.ad_spend_manual ? String(selected.ad_spend_manual) : "");
       setSkuQuery(""); setSkuHits([]);
@@ -294,6 +308,7 @@ export default function Calendar({
       expected_revenue: editExpected ? parseInt(editExpected, 10) : 0,    // 0 = clear
       vendor_name: editVendor,
       vendor_contact: editVendorContact,
+      md_owner_name: editOwner,
     });
     setShowEdit(false);
   }
@@ -498,7 +513,7 @@ export default function Calendar({
         </div>
 
         {newOpen && (
-          <div className="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded space-y-2">
+          <div id="new-event-form" className="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded space-y-2">
             <div className="text-sm font-semibold text-emerald-900">MD 직접 연락받은 행사 등록</div>
             {templates.length > 0 && (
               <div>
@@ -818,7 +833,16 @@ export default function Calendar({
             const items = byDate.get(cell.key) ?? [];
             const isToday = cell.key === todayKey;
             return (
-              <div key={cell.key} className={`bg-white min-h-[110px] p-1.5 ${cell.inMonth ? "" : "bg-gray-50 text-gray-400"} ${isToday ? "ring-2 ring-inset ring-blue-400" : ""}`}>
+              <div
+                key={cell.key}
+                onClick={(e) => {
+                  if (!cell.inMonth) return;
+                  if ((e.target as HTMLElement).closest("button")) return;
+                  openNewEventForDate(cell.key);
+                }}
+                className={`bg-white min-h-[110px] p-1.5 ${cell.inMonth ? "cursor-pointer hover:bg-emerald-50/60 transition-colors" : "bg-gray-50 text-gray-400"} ${isToday ? "ring-2 ring-inset ring-blue-400" : ""}`}
+                title={cell.inMonth ? `${cell.key} 클릭하면 이 날짜로 새 행사 등록` : ""}
+              >
                 <div className={`text-xs mb-1 ${isToday ? "font-bold text-blue-600" : ""}`}>{cell.date.getDate()}</div>
                 {(() => {
                   const season = seasonForDate(cell.key);
@@ -1093,8 +1117,15 @@ export default function Calendar({
               })()}
             </div>
 
-            {/* 담당 MD */}
-            {(() => {
+            {/* 담당 MD — 행사별 owner (md_owner_name) 우선, 없으면 채널 contacts */}
+            {selected.md_owner_name ? (
+              <div>
+                <label className="text-xs text-gray-600 block mb-1">담당 MD (이 행사)</label>
+                <div className="text-xs bg-blue-50 border border-blue-200 px-2 py-1.5 rounded font-semibold text-blue-900">
+                  👤 {selected.md_owner_name}
+                </div>
+              </div>
+            ) : (() => {
               const chContacts = contacts.filter((c) => c.channel_key === selected.channel_key);
               if (chContacts.length === 0) {
                 return (
@@ -1106,7 +1137,7 @@ export default function Calendar({
               }
               return (
                 <div>
-                  <label className="text-xs text-gray-600 block mb-1">담당 MD</label>
+                  <label className="text-xs text-gray-600 block mb-1">채널 담당 MD (참고용)</label>
                   <div className="space-y-1">
                     {chContacts.map((c) => (
                       <div key={c.id} className="text-xs bg-gray-50 px-2 py-1.5 rounded">
@@ -1119,6 +1150,7 @@ export default function Calendar({
                       </div>
                     ))}
                   </div>
+                  <div className="text-[10px] text-slate-400 mt-1">↑ 이 행사 담당 직접 지정하려면 수정 폼의 '담당 MD' 입력</div>
                 </div>
               );
             })()}
@@ -1212,6 +1244,10 @@ export default function Calendar({
                     <div>
                       <label className="text-[11px] text-gray-600 block mb-0.5">업체 연락처</label>
                       <input type="text" placeholder="010-..." className="w-full text-sm border rounded px-2 py-1.5" value={editVendorContact} onChange={(e) => setEditVendorContact(e.target.value)} />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-[11px] text-gray-600 block mb-0.5">담당 MD (자유 입력)</label>
+                      <input type="text" placeholder="홍길동 / 이아무개" className="w-full text-sm border rounded px-2 py-1.5" value={editOwner} onChange={(e) => setEditOwner(e.target.value)} />
                     </div>
                   </div>
                   {selected.source !== "manual" && (

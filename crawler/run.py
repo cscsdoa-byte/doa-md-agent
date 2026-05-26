@@ -695,8 +695,9 @@ def cmd_update(
     expected_revenue: int | None = None,
     vendor_name: str | None = None,
     vendor_contact: str | None = None,
+    md_owner_name: str | None = None,
 ) -> int:
-    """행사 본문 필드 수정 (제목/마감/카테고리/URL/행사유형/할인/예상매출/업체)."""
+    """행사 본문 필드 수정 (제목/마감/카테고리/URL/행사유형/할인/예상매출/업체/담당MD)."""
     with connect() as conn:
         try:
             evt = resolve_event(conn, id_prefix)
@@ -709,6 +710,7 @@ def cmd_update(
             event_type=event_type, discount_rate=discount_rate,
             discount_burden=discount_burden, expected_revenue=expected_revenue,
             vendor_name=vendor_name, vendor_contact=vendor_contact,
+            md_owner_name=md_owner_name,
         )
         print(f"✓ {evt['dedup_id'][:6]} 수정 완료")
     return 0
@@ -749,6 +751,7 @@ def cmd_add_event(
     expected_revenue: int | None = None,
     vendor_name: str | None = None,
     vendor_contact: str | None = None,
+    md_owner_name: str | None = None,
 ) -> int:
     """MD가 직접 받은 행사를 수동 등록 (RSS/공지에 안 뜨는 케이스)."""
     valid = {c["key"] for c in load_channels()}
@@ -770,6 +773,7 @@ def cmd_add_event(
             expected_revenue=expected_revenue,
             vendor_name=vendor_name,
             vendor_contact=vendor_contact,
+            md_owner_name=md_owner_name,
         )
         if sale_start and sale_end:
             set_event_period(conn, dedup_id, sale_start, sale_end)
@@ -933,6 +937,7 @@ def main() -> None:
     pup.add_argument("--burden", default=None)
     pup.add_argument("--expected", type=int, default=None)
     pup.add_argument("--vendor", default=None)
+    pup.add_argument("--owner", default=None, help="담당 MD 이름")
     pup.add_argument("--vendor-contact", default=None)
 
     patt = sp.add_parser("attach-channel-totals", help="행사 기간 채널 전체 매출을 sales_json 에 attach (SKU 매칭 생략)")
@@ -956,6 +961,7 @@ def main() -> None:
     pad.add_argument("--expected", type=int, default=None, help="예상 매출 (원)")
     pad.add_argument("--vendor", default=None, help="업체명 (벤더사)")
     pad.add_argument("--vendor-contact", default=None, help="업체 연락처")
+    pad.add_argument("--owner", default=None, help="담당 MD 이름")
 
     args = p.parse_args()
     if args.cmd is None or args.cmd == "crawl":
@@ -989,6 +995,7 @@ def main() -> None:
             event_type=args.event_type, discount_rate=args.discount,
             discount_burden=args.burden, expected_revenue=args.expected,
             vendor_name=args.vendor, vendor_contact=args.vendor_contact,
+            md_owner_name=args.owner,
         ))
     elif args.cmd == "dump-json":
         sys.exit(cmd_dump_json(args.out))
@@ -1002,6 +1009,7 @@ def main() -> None:
             event_type=args.event_type, discount_rate=args.discount,
             discount_burden=args.burden, expected_revenue=args.expected,
             vendor_name=args.vendor, vendor_contact=args.vendor_contact,
+            md_owner_name=args.owner,
         ))
     elif args.cmd == "fee-rates":
         sys.exit(cmd_fee_rates(args.days))

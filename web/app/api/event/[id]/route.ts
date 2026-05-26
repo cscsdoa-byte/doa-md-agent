@@ -21,6 +21,7 @@ interface PatchBody {
   expected_revenue?: number;
   vendor_name?: string;
   vendor_contact?: string;
+  md_owner_name?: string;
 }
 
 export async function PATCH(
@@ -60,6 +61,7 @@ export async function PATCH(
     if (body.expected_revenue !== undefined) updateArgs.push("--expected", String(body.expected_revenue));
     if (body.vendor_name !== undefined) updateArgs.push("--vendor", body.vendor_name);
     if (body.vendor_contact !== undefined) updateArgs.push("--vendor-contact", body.vendor_contact);
+    if (body.md_owner_name !== undefined) updateArgs.push("--owner", body.md_owner_name);
     if (updateArgs.length > 2) {
       await runCli(updateArgs);
     }

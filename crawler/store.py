@@ -96,6 +96,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE events ADD COLUMN vendor_name TEXT")
     if "vendor_contact" not in cols:
         conn.execute("ALTER TABLE events ADD COLUMN vendor_contact TEXT")
+    if "md_owner_name" not in cols:
+        # 행사 담당 MD (자유 입력). channel_key 기반 contacts 매핑보다 우선.
+        conn.execute("ALTER TABLE events ADD COLUMN md_owner_name TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_status ON events(status)")
 
     # MD 연락처 마스터 — 채널별 담당 MD 정보. 한 번 입력해두면 다음 행사 잡을 때 또 씀.
@@ -439,6 +442,7 @@ def update_event_fields(
     expected_revenue: int | None = None,
     vendor_name: str | None = None,
     vendor_contact: str | None = None,
+    md_owner_name: str | None = None,
 ) -> None:
     """행사 본문 필드 직접 수정. 주로 수동 등록 행사 수정용.
 
@@ -474,6 +478,7 @@ def update_event_fields(
         ("discount_burden", discount_burden),
         ("vendor_name", vendor_name),
         ("vendor_contact", vendor_contact),
+        ("md_owner_name", md_owner_name),
     ):
         if val is not None:
             if val == "":
@@ -568,6 +573,7 @@ def add_manual_event(
     expected_revenue: int | None = None,
     vendor_name: str | None = None,
     vendor_contact: str | None = None,
+    md_owner_name: str | None = None,
 ) -> str:
     """MD가 직접 받은 행사 등록 (RSS/공지에 안 뜨는 케이스).
 
@@ -590,14 +596,14 @@ def add_manual_event(
             category, is_doa_fit, raw_text, extra_json,
             first_seen_at, last_seen_at, status, memo, source,
             event_type, discount_rate, discount_burden, expected_revenue,
-            vendor_name, vendor_contact
+            vendor_name, vendor_contact, md_owner_name
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?, ?, 'reviewing', ?, 'manual',
-                  ?, ?, ?, ?, ?, ?)""",
+                  ?, ?, ?, ?, ?, ?, ?)""",
         (
             dedup_id, channel_key, title, url, now, deadline_iso,
             category, json.dumps({"manual": True}), now, now, memo,
             event_type, discount_rate, discount_burden, expected_revenue,
-            vendor_name, vendor_contact,
+            vendor_name, vendor_contact, md_owner_name,
         ),
     )
     return dedup_id

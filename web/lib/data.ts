@@ -49,6 +49,7 @@ export interface EventItem {
   expected_revenue: number | null;
   vendor_name: string | null;
   vendor_contact: string | null;
+  md_owner_name: string | null;  // 행사별 담당 MD (자유 입력, 채널 contacts 우선)
   first_seen_at: string;
   last_seen_at: string;
 }

@@ -255,10 +255,12 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
                       <div className="text-[10px] text-slate-400 font-mono">{e.dedup_id.slice(0, 6)}</div>
                     </td>
                     <td className="px-2 py-2 text-xs">
-                      {contact ? (
+                      {e.md_owner_name ? (
+                        <div className="font-semibold text-blue-700">👤 {e.md_owner_name}</div>
+                      ) : contact ? (
                         <div>
-                          <div className="font-medium">{contact.name}</div>
-                          {contact.kakao_id && <div className="text-[10px] text-slate-500">{contact.kakao_id}</div>}
+                          <div className="font-medium text-slate-500">{contact.name}</div>
+                          <div className="text-[10px] text-slate-400">채널 담당 (참고용)</div>
                         </div>
                       ) : (
                         <span className="text-slate-300">-</span>
