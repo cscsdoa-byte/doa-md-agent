@@ -51,12 +51,30 @@ const STATUS_LABEL: Record<string, string> = {
 export default function OpsBoard({ events, conflicts = {} }: Props) {
   const router = useRouter();
   const [sortKey, setSortKey] = useState<SortKey>("endSoon");
+  const [mdFilter, setMdFilter] = useState<string>("");  // "" = 전체
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  // MD 옵션 목록 (count 같이)
+  const mdOptions = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const e of events) {
+      const k = (e.md_owner_name && e.md_owner_name.trim()) || "(미지정)";
+      counts[k] = (counts[k] ?? 0) + 1;
+    }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [events]);
+
+  const filtered = useMemo(() => {
+    if (!mdFilter) return events;
+    return events.filter(
+      (e) => ((e.md_owner_name && e.md_owner_name.trim()) || "(미지정)") === mdFilter,
+    );
+  }, [events, mdFilter]);
+
   const sorted = useMemo(() => {
-    const arr = [...events];
+    const arr = [...filtered];
     arr.sort((a, b) => {
       if (sortKey === "endSoon") {
         if (a.status !== b.status) return a.status === "running" ? -1 : 1;
@@ -75,7 +93,7 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
       return (a.sale_end ?? "9999").localeCompare(b.sale_end ?? "9999");
     });
     return arr;
-  }, [events, sortKey, conflicts]);
+  }, [filtered, sortKey, conflicts]);
 
   async function refreshSales(short_id: string) {
     setError(null);
@@ -102,7 +120,7 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
     let stockAlert = 0;
     let claimAlert = 0;
     let cannibalAlert = 0;
-    for (const e of events) {
+    for (const e of filtered) {
       sale += e.sales?.totals?.sale ?? 0;
       op += e.sales?.totals?.operating_profit ?? 0;
       ad += e.ad_spend_manual ?? 0;
@@ -111,15 +129,17 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
       if ((conflicts[e.dedup_id]?.length ?? 0) > 0) cannibalAlert++;
     }
     return { sale, op, ad, stockAlert, claimAlert, cannibalAlert };
-  }, [events, conflicts]);
+  }, [filtered, conflicts]);
 
   return (
     <div className="space-y-4">
       {/* 상단 요약 — 진행중·선정 합산 */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
         <div className="bg-white border rounded p-3">
-          <div className="text-[10px] text-slate-500">행사 수</div>
-          <div className="text-xl font-bold text-slate-900">{events.length}</div>
+          <div className="text-[10px] text-slate-500">
+            행사 수 {mdFilter ? `· ${mdFilter}` : ""}
+          </div>
+          <div className="text-xl font-bold text-slate-900">{filtered.length}</div>
         </div>
         <div className="bg-white border rounded p-3">
           <div className="text-[10px] text-slate-500">행사 매출 합계</div>
@@ -147,25 +167,55 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
         </div>
       </div>
 
-      {/* 정렬 토글 */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-1 text-xs">
-          <span className="text-slate-500 mr-1">정렬</span>
-          {SORT_OPTIONS.map((o) => (
+      {/* 필터 + 정렬 토글 */}
+      <div className="space-y-2">
+        {mdOptions.length > 1 && (
+          <div className="flex items-center gap-1 text-xs flex-wrap">
+            <span className="text-slate-500 mr-1">담당</span>
             <button
-              key={o.value}
-              onClick={() => setSortKey(o.value)}
+              onClick={() => setMdFilter("")}
               className={`px-2 py-1 rounded border ${
-                sortKey === o.value
-                  ? "bg-slate-800 text-white border-slate-800"
+                mdFilter === ""
+                  ? "bg-blue-600 text-white border-blue-600"
                   : "bg-white text-slate-700 hover:bg-slate-50"
               }`}
             >
-              {o.label}
+              전체 ({events.length})
             </button>
-          ))}
+            {mdOptions.map(([name, count]) => (
+              <button
+                key={name}
+                onClick={() => setMdFilter(name)}
+                className={`px-2 py-1 rounded border ${
+                  mdFilter === name
+                    ? "bg-blue-600 text-white border-blue-600"
+                    : "bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                👤 {name} ({count})
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-1 text-xs">
+            <span className="text-slate-500 mr-1">정렬</span>
+            {SORT_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                onClick={() => setSortKey(o.value)}
+                className={`px-2 py-1 rounded border ${
+                  sortKey === o.value
+                    ? "bg-slate-800 text-white border-slate-800"
+                    : "bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          {error && <div className="text-xs text-red-600">{error}</div>}
         </div>
-        {error && <div className="text-xs text-red-600">{error}</div>}
       </div>
 
       {/* 카드 그리드 */}
