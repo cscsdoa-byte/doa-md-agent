@@ -30,6 +30,14 @@ SETTLE_TOKEN_WARN_HOURS = 2
 
 # 카니발 검출에서 ACTIVE 상태 (검출 대상 — Calendar 의 conflict.ts 와 동일)
 CANNIBAL_ACTIVE = {"new", "reviewing", "applied", "selected", "running"}
+# 회의록(2026-05-20) — "네이버↔카카오만 카니발 금지". 다른 채널 겹침은 OK.
+CANNIBAL_BLOCKED_PAIRS = frozenset({
+    frozenset({"naver_smartstore", "kakao_talkstore"}),
+})
+
+
+def _is_blocked_pair(a: str, b: str) -> bool:
+    return frozenset({a, b}) in CANNIBAL_BLOCKED_PAIRS
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure") and (_stream.encoding or "").lower() != "utf-8":
@@ -100,6 +108,8 @@ def detect_cannibal_conflicts() -> list[dict]:
             if a["dedup_id"] == b["dedup_id"]:
                 continue
             if a["channel_key"] == b["channel_key"]:
+                continue
+            if not _is_blocked_pair(a["channel_key"], b["channel_key"]):
                 continue
             key = tuple(sorted([a["dedup_id"], b["dedup_id"]]))
             if key in seen:
