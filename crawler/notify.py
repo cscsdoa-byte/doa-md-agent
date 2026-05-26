@@ -25,6 +25,11 @@ CHANNELS_YAML = Path(__file__).resolve().parent / "channels.yaml"
 STORAGE_DIR = Path(__file__).resolve().parent / "storage"
 # 셀러센터 세션은 보통 30일 정도 유지 — 25일 넘으면 갱신 권장
 SESSION_WARN_DAYS = 25
+# 정산자동화웹 JWT 만료 임박 알림 임계 (시간)
+SETTLE_TOKEN_WARN_HOURS = 2
+
+# 카니발 검출에서 ACTIVE 상태 (검출 대상 — Calendar 의 conflict.ts 와 동일)
+CANNIBAL_ACTIVE = {"new", "reviewing", "applied", "selected", "running"}
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure") and (_stream.encoding or "").lower() != "utf-8":
@@ -60,6 +65,91 @@ def load_state() -> dict:
 def save_state(state: dict) -> None:
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def detect_cannibal_conflicts() -> list[dict]:
+    """카니발(같은 SKU·겹치는 기간·다른 채널) 행사 페어 검출.
+
+    Calendar 의 conflict.ts 로직과 동일. 반환은 페어 dedup 된 리스트:
+    [{a: {short, title, channel}, b: {short, title, channel}, common_skus: [ids]}, ...]
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT dedup_id, channel_key, title, status, sale_start, sale_end, applied_skus_json "
+            "FROM events "
+            "WHERE status IN ('new','reviewing','applied','selected','running') "
+            "  AND applied_skus_json IS NOT NULL "
+            "  AND sale_start IS NOT NULL AND sale_end IS NOT NULL"
+        ).fetchall()
+    events: list[dict] = []
+    for r in rows:
+        d = dict(r)
+        try:
+            skus = {int(s.get("sku_id")) for s in json.loads(d["applied_skus_json"] or "[]") if s.get("sku_id")}
+        except Exception:
+            skus = set()
+        if not skus:
+            continue
+        d["_skus"] = skus
+        events.append(d)
+
+    pairs: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for a in events:
+        for b in events:
+            if a["dedup_id"] == b["dedup_id"]:
+                continue
+            if a["channel_key"] == b["channel_key"]:
+                continue
+            key = tuple(sorted([a["dedup_id"], b["dedup_id"]]))
+            if key in seen:
+                continue
+            if a["sale_end"][:10] < b["sale_start"][:10]:
+                continue
+            if b["sale_end"][:10] < a["sale_start"][:10]:
+                continue
+            common = sorted(a["_skus"] & b["_skus"])
+            if not common:
+                continue
+            seen.add(key)
+            pairs.append({
+                "a": {"short": a["dedup_id"][:6], "title": a["title"], "channel": a["channel_key"]},
+                "b": {"short": b["dedup_id"][:6], "title": b["title"], "channel": b["channel_key"]},
+                "common_skus": common,
+            })
+    return pairs
+
+
+def check_settle_token_expiry() -> dict | None:
+    """SETTLE_API_TOKEN JWT exp 디코드 → 만료 임박/만료 상태 반환.
+
+    반환: None = 토큰 정상(여유 있음).
+          {status: 'missing'|'expired'|'expiring', hours_left?: float}
+    """
+    token = (os.getenv("SETTLE_API_TOKEN") or "").strip()
+    if not token:
+        return {"status": "missing"}
+    parts = token.split(".")
+    if len(parts) != 3:
+        return {"status": "missing"}  # 비정상 형식 = 사실상 없는 것
+    import base64
+    payload_b64 = parts[1]
+    padding = "=" * ((4 - len(payload_b64) % 4) % 4)
+    try:
+        payload_raw = base64.urlsafe_b64decode(payload_b64 + padding)
+        payload = json.loads(payload_raw)
+    except Exception:
+        return {"status": "missing"}
+    exp = payload.get("exp")
+    if not isinstance(exp, (int, float)):
+        return None  # exp 없으면 만료 검증 못함 → 통과
+    now_ts = datetime.now().timestamp()
+    if exp <= now_ts:
+        return {"status": "expired", "hours_left": 0}
+    hours_left = (exp - now_ts) / 3600
+    if hours_left < SETTLE_TOKEN_WARN_HOURS:
+        return {"status": "expiring", "hours_left": hours_left}
+    return None
 
 
 def check_session_expiry() -> list[dict]:
@@ -180,6 +270,40 @@ def build_message() -> tuple[str, list[dict]]:
         for e in recent:
             lines.append(_fmt(e))
             notified.append({"id": e["dedup_id"], "kind": "nodl"})
+
+    # 카니발 충돌 — 같은 SKU·겹치는 기간·다른 채널 페어
+    cannibals = detect_cannibal_conflicts()
+    if cannibals:
+        lines.append(f"\n⚡ *카니발 충돌 — {len(cannibals)}쌍* (같은 SKU 다른 채널 기간 겹침)")
+        for c in cannibals[:10]:  # 너무 많으면 잘림 → 상위 10쌍만
+            a_ch = CHANNEL_NAMES.get(c["a"]["channel"], c["a"]["channel"])
+            b_ch = CHANNEL_NAMES.get(c["b"]["channel"], c["b"]["channel"])
+            lines.append(
+                f"• [{c['a']['short']}] *{a_ch}* {c['a']['title'][:35]}\n"
+                f"  ↕ [{c['b']['short']}] *{b_ch}* {c['b']['title'][:35]}\n"
+                f"  공통 SKU: {c['common_skus']}"
+            )
+            notified.append({
+                "id": f"cannibal:{c['a']['short']}-{c['b']['short']}",
+                "kind": "cannibal",
+            })
+        if len(cannibals) > 10:
+            lines.append(f"  …외 {len(cannibals) - 10}쌍")
+
+    # 정산자동화웹 토큰 만료 임박
+    token_status = check_settle_token_expiry()
+    if token_status:
+        lines.append(f"\n🔑 *정산자동화웹 토큰 점검*")
+        if token_status["status"] == "missing":
+            lines.append("• ❌ SETTLE_API_TOKEN 비어있음 — auto_login 실패 또는 .env 미설정")
+            notified.append({"id": "settle_token:missing", "kind": "settle_token"})
+        elif token_status["status"] == "expired":
+            lines.append("• ❌ 토큰 만료 — 매출 매칭/일별 매출 호출 즉시 401")
+            notified.append({"id": "settle_token:expired", "kind": "settle_token"})
+        else:
+            h = token_status.get("hours_left", 0)
+            lines.append(f"• ⏰ 토큰 만료 임박 — {h:.1f}시간 후 만료 (auto_login 점검 권장)")
+            notified.append({"id": "settle_token:expiring", "kind": "settle_token"})
 
     # 셀러센터 세션 점검 — auth=session 채널의 storage 파일 만료/누락
     sessions = check_session_expiry()
