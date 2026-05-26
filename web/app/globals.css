@@ -1,6 +1,10 @@
 @import "tailwindcss";
 
+/* UI 가 라이트 전용으로 설계돼 있어 OS 다크모드 자동 반전을 끔.
+ * (이전엔 @media (prefers-color-scheme: dark) 가 body 만 어둡게 만들어서
+ *  명시 배경 없는 자리의 글자가 안 보였음.) */
 :root {
+  color-scheme: light;
   --background: #ffffff;
   --foreground: #171717;
 }
@@ -10,13 +14,6 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
