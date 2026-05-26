@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Contact, EventItem } from "@/lib/data";
 import { themeOf } from "@/lib/channelTheme";
 import { STATUS_BADGE, STATUS_OPTIONS, STATUS_PRIORITY, statusLabel } from "@/lib/status";
@@ -122,8 +123,15 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
     return { sale, op, count, withSales };
   }, [sorted]);
 
+  const router = useRouter();
+
   const toggleSort = (k: SortKey) => {
     setSort((s) => (s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: "asc" }));
+  };
+
+  // 행 클릭 → 캘린더로 이동 + 자동 선택 (Calendar 의 useSearchParams 가 처리)
+  const goToCalendar = (dedup_id: string) => {
+    router.push(`/?selected=${dedup_id}`);
   };
 
   const sortIcon = (k: SortKey) => (sort.key === k ? (sort.dir === "asc" ? " ▲" : " ▼") : "");
@@ -227,7 +235,12 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
                 const op = e.sales?.totals?.operating_profit ?? 0;
                 const margin = sale > 0 ? (op / sale) * 100 : null;
                 return (
-                  <tr key={e.dedup_id} className="border-b hover:bg-slate-50 align-top">
+                  <tr
+                    key={e.dedup_id}
+                    className="border-b hover:bg-blue-50 align-top cursor-pointer"
+                    onClick={() => goToCalendar(e.dedup_id)}
+                    title="클릭하면 캘린더에서 이 행사를 열어 수정할 수 있어요"
+                  >
                     <td className="px-2 py-2">
                       <span className={`inline-block text-[10px] px-1.5 py-0.5 rounded ${STATUS_BADGE[e.status] ?? "bg-gray-100"}`}>
                         {statusLabel(e.status)}
@@ -285,7 +298,7 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
       </div>
 
       <div className="text-[10px] text-slate-400 mt-2">
-        ※ 기본은 종료/패스 + RSS 안내문(기간 없음) 숨김. 체크 풀면 전체 표시. 컬럼 헤더 클릭으로 정렬.
+        ※ 행 클릭 → 캘린더로 이동 + 우측 패널에서 수정 / 컬럼 헤더 클릭으로 정렬 / 기본은 종료·패스 + RSS 안내문 숨김
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiUrl } from "@/lib/api";
 import type { Contact, EventItem, EventTemplate } from "@/lib/data";
@@ -88,6 +88,24 @@ export default function Calendar({
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [doaOnly, setDoaOnly] = useState(true);
+
+  // URL ?selected=<short_id 또는 dedup_id> 으로 들어오면 자동 선택 + 해당 행사 월로 이동
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const sel = searchParams.get("selected");
+    if (!sel) return;
+    const ev = events.find((e) => e.dedup_id === sel || e.dedup_id.startsWith(sel));
+    if (!ev) return;
+    setSelectedId(ev.dedup_id);
+    // 행사가 속한 월로 이동 (sale_start 우선, 없으면 posted_at)
+    const anchor = ev.sale_start || ev.posted_at;
+    if (anchor) {
+      const d = new Date(anchor);
+      if (!isNaN(d.getTime())) {
+        setCursor(new Date(d.getFullYear(), d.getMonth(), 1));
+      }
+    }
+  }, [searchParams, events]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
