@@ -22,6 +22,13 @@ export interface SalesTotals {
   ad_spend_is_filtered?: boolean;
 }
 
+export interface EventActivity {
+  id: number;
+  kind: string;        // status / memo / period / ad_spend / sku_register / sku_unregister / sales / comment / field
+  text: string;
+  created_at: string;
+}
+
 export interface EventAttachment {
   id: number;
   dedup_id: string;
@@ -66,6 +73,7 @@ export interface EventItem {
   ops_claim_note: string | null;     // 진행중 운영관리 — 클레임/이슈 메모
   ops_retro_note: string | null;     // 종료 후 회고 메모
   attachments?: EventAttachment[];   // 구좌 노출 캡쳐들
+  activities?: EventActivity[];      // 활동 타임라인 (최신순, 최대 30건)
   first_seen_at: string;
   last_seen_at: string;
 }

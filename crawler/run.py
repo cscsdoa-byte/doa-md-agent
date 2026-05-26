@@ -28,6 +28,9 @@ from crawler.store import (
     get_applied_skus,
     get_attachment,
     infer_event_types,
+    insert_activity,
+    delete_activity,
+    list_activities,
     list_attachments,
     list_channels_master,
     set_sku_channel_status,
@@ -492,6 +495,8 @@ def cmd_dump_json(out_path: str | None) -> int:
             d["short_id"] = d["dedup_id"][:6]
             d["applied_skus"] = get_applied_skus(conn, d["dedup_id"])
             d["attachments"] = [dict(a) for a in list_attachments(conn, d["dedup_id"])]
+            # 활동 타임라인 — 최근 30건
+            d["activities"] = [dict(a) for a in list_activities(conn, d["dedup_id"], limit=30)]
             if d.get("sales_json"):
                 try:
                     d["sales"] = _json.loads(d["sales_json"])
@@ -642,6 +647,30 @@ def cmd_sync_channels(dry: bool) -> int:
     """정산자동화웹 facets → channels_master DB 동기화."""
     from crawler.sync_channels import sync
     return sync(dry)
+
+
+def cmd_comment_add(id_prefix: str, text: str) -> int:
+    """행사에 자유 코멘트 추가."""
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        insert_activity(conn, evt["dedup_id"], "comment", text)
+    print(f"✓ {evt['dedup_id'][:6]} 코멘트 추가: {text[:60]}")
+    return 0
+
+
+def cmd_activity_del(activity_id: int) -> int:
+    """타임라인 활동 1건 삭제 (오타 등)."""
+    with connect() as conn:
+        ok = delete_activity(conn, activity_id)
+    if ok:
+        print(f"✓ 활동 #{activity_id} 삭제")
+        return 0
+    print(f"ERROR: 활동 #{activity_id} 못 찾음", file=sys.stderr)
+    return 1
 
 
 def cmd_sku_matrix_set(
@@ -1109,6 +1138,13 @@ def main() -> None:
     pchd = sp.add_parser("channel-del", help="채널 마스터 삭제")
     pchd.add_argument("settle_name")
 
+    pca = sp.add_parser("comment-add", help="행사에 자유 코멘트 추가")
+    pca.add_argument("id_prefix")
+    pca.add_argument("text")
+
+    pad = sp.add_parser("activity-del", help="타임라인 활동 1건 삭제")
+    pad.add_argument("activity_id", type=int)
+
     psm = sp.add_parser("sku-matrix-set", help="SKU × 채널 입점 상태 set/clear")
     psm.add_argument("settle_name")
     psm.add_argument("sku_id", type=int)
@@ -1266,6 +1302,10 @@ def main() -> None:
     elif args.cmd == "sku-matrix-set":
         status = None if args.status in (None, "none") else args.status
         sys.exit(cmd_sku_matrix_set(args.settle_name, args.sku_id, status, args.entry_date, args.note))
+    elif args.cmd == "comment-add":
+        sys.exit(cmd_comment_add(args.id_prefix, args.text))
+    elif args.cmd == "activity-del":
+        sys.exit(cmd_activity_del(args.activity_id))
     elif args.cmd == "template-list":
         sys.exit(cmd_template_list())
     elif args.cmd == "template-add":

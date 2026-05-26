@@ -9,6 +9,7 @@ import type { ChannelDef } from "@/lib/channels";
 import { themeOf } from "@/lib/channelTheme";
 import { detectConflicts } from "@/lib/conflict";
 import { daysFromToday, nextSeasons, seasonForDate } from "@/lib/season";
+import ActivityTimeline from "@/components/ActivityTimeline";
 
 const STATUS_BADGE: Record<string, string> = {
   new: "bg-slate-200 text-slate-800 border-l-4 border-slate-500",
@@ -1510,6 +1511,14 @@ export default function Calendar({
               <a href={selected.url} target="_blank" rel="noopener" className="text-xs text-blue-600 hover:underline break-all">
                 {selected.url}
               </a>
+            </div>
+
+            {/* 💬 활동 타임라인 */}
+            <div className="pt-3 border-t">
+              <ActivityTimeline
+                shortId={selected.short_id}
+                activities={selected.activities ?? []}
+              />
             </div>
 
             {/* 행사 본문 수정 + 삭제 */}

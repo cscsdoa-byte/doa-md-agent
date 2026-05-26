@@ -161,6 +161,19 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "ops_retro_note" not in ev_cols:
         conn.execute("ALTER TABLE events ADD COLUMN ops_retro_note TEXT")  # 종료 후 회고 메모
 
+    # 행사 활동 타임라인 — 상태 변경/메모/광고비/SKU/매출/자유코멘트 자동·수동 기록.
+    # kind: status / memo / period / ad_spend / sku_register / sku_unregister / sales / comment / field
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS event_activities (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            dedup_id    TEXT NOT NULL,
+            kind        TEXT NOT NULL,
+            text        TEXT,
+            created_at  TEXT NOT NULL
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_activities_event ON event_activities(dedup_id, created_at DESC)")
+
     # 채널 마스터 — 정산자동화웹 facets API 자동 동기화 + yaml 기반 정보채널.
     # key = settle_name 으로 1:1 매핑되는 게 기본. yaml 의 settle_channels 가 여러 개면 각각 row.
     # source: "settle" (정산자동화웹 동기화) / "yaml" (정보채널, 어댑터와 묶임) / "manual" (사용자 추가)
@@ -222,17 +235,60 @@ def resolve_event(conn: sqlite3.Connection, id_prefix: str) -> sqlite3.Row:
     return rows[0]
 
 
+def insert_activity(
+    conn: sqlite3.Connection,
+    dedup_id: str,
+    kind: str,
+    text: str,
+) -> None:
+    """행사 활동 1건 기록. kind: status/memo/period/ad_spend/sku/sales/comment/field 등."""
+    conn.execute(
+        "INSERT INTO event_activities (dedup_id, kind, text, created_at) VALUES (?, ?, ?, ?)",
+        (dedup_id, kind, text, datetime.now().isoformat()),
+    )
+
+
+def list_activities(
+    conn: sqlite3.Connection, dedup_id: str, limit: int = 100
+) -> list[sqlite3.Row]:
+    """행사의 활동 타임라인 (최신 → 과거)."""
+    return conn.execute(
+        "SELECT id, kind, text, created_at FROM event_activities "
+        "WHERE dedup_id = ? ORDER BY created_at DESC LIMIT ?",
+        (dedup_id, limit),
+    ).fetchall()
+
+
+def delete_activity(conn: sqlite3.Connection, activity_id: int) -> bool:
+    cur = conn.execute("DELETE FROM event_activities WHERE id = ?", (activity_id,))
+    return cur.rowcount > 0
+
+
 def set_status(conn: sqlite3.Connection, dedup_id: str, status: str) -> None:
     if status not in STATUS_VALUES:
         raise ValueError(f"invalid status '{status}'. 가능: {STATUS_VALUES}")
+    prev_row = conn.execute("SELECT status FROM events WHERE dedup_id = ?", (dedup_id,)).fetchone()
+    prev = prev_row["status"] if prev_row else None
     conn.execute(
         "UPDATE events SET status = ?, status_updated_at = ? WHERE dedup_id = ?",
         (status, datetime.now().isoformat(), dedup_id),
     )
+    if prev != status:
+        prev_label = STATUS_LABELS.get(prev or "", prev or "?")
+        next_label = STATUS_LABELS.get(status, status)
+        insert_activity(conn, dedup_id, "status", f"상태: {prev_label} → {next_label}")
 
 
 def set_memo(conn: sqlite3.Connection, dedup_id: str, memo: str) -> None:
     conn.execute("UPDATE events SET memo = ? WHERE dedup_id = ?", (memo, dedup_id))
+    summary = (memo or "").strip()
+    if summary:
+        # 너무 길면 60자 truncate
+        if len(summary) > 60:
+            summary = summary[:60] + "…"
+        insert_activity(conn, dedup_id, "memo", f"메모: {summary}")
+    else:
+        insert_activity(conn, dedup_id, "memo", "메모 비움")
 
 
 def list_recent_no_deadline(
@@ -290,11 +346,21 @@ def add_applied_sku(
         }
     )
     set_applied_skus(conn, dedup_id, skus)
+    insert_activity(
+        conn, dedup_id, "sku_register",
+        f"SKU 등록: {sku_name or f'#{sku_id}'} ({int(sale_price):,}원 × {qty}건)",
+    )
 
 
 def remove_applied_sku(conn: sqlite3.Connection, dedup_id: str, sku_id: int) -> None:
+    target = next((s for s in get_applied_skus(conn, dedup_id) if s.get("sku_id") == sku_id), None)
     skus = [s for s in get_applied_skus(conn, dedup_id) if s.get("sku_id") != sku_id]
     set_applied_skus(conn, dedup_id, skus)
+    if target:
+        insert_activity(
+            conn, dedup_id, "sku_unregister",
+            f"SKU 제거: {target.get('sku_name') or f'#{sku_id}'}",
+        )
 
 
 def set_event_period(
@@ -304,6 +370,7 @@ def set_event_period(
         "UPDATE events SET sale_start = ?, sale_end = ? WHERE dedup_id = ?",
         (start, end, dedup_id),
     )
+    insert_activity(conn, dedup_id, "period", f"기간: {start} ~ {end}")
 
 
 def set_ad_spend(conn: sqlite3.Connection, dedup_id: str, ad_spend: int | None) -> None:
@@ -312,6 +379,10 @@ def set_ad_spend(conn: sqlite3.Connection, dedup_id: str, ad_spend: int | None) 
         "UPDATE events SET ad_spend_manual = ? WHERE dedup_id = ?",
         (ad_spend, dedup_id),
     )
+    if ad_spend is None or ad_spend == 0:
+        insert_activity(conn, dedup_id, "ad_spend", "광고비 비움")
+    else:
+        insert_activity(conn, dedup_id, "ad_spend", f"광고비: {int(ad_spend):,}원")
 
 
 def set_ops_note(
@@ -697,6 +768,16 @@ def set_event_sales(
         "UPDATE events SET sales_json = ?, sales_synced_at = ? WHERE dedup_id = ?",
         (payload, datetime.now().isoformat(), dedup_id),
     )
+    if sales and sales.get("totals"):
+        t = sales["totals"]
+        sale = int(t.get("sale", 0) or 0)
+        op = int(t.get("operating_profit", 0) or 0)
+        insert_activity(
+            conn, dedup_id, "sales",
+            f"매출 매핑: {sale:,}원 / 영업이익 {op:,}원",
+        )
+    elif sales is None:
+        insert_activity(conn, dedup_id, "sales", "매출 캐시 초기화")
 
 
 def get_event_sales(conn: sqlite3.Connection, dedup_id: str) -> dict | None:
