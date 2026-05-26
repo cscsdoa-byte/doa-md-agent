@@ -152,9 +152,36 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
               </Link>
 
               <div className="px-3 pb-2 text-[11px] text-slate-600 space-y-0.5">
-                {e.sale_start && e.sale_end && (
-                  <div>📅 {e.sale_start.slice(5, 10)} ~ {e.sale_end.slice(5, 10)}</div>
-                )}
+                {e.sale_start && e.sale_end && (() => {
+                  const start = new Date(e.sale_start);
+                  const end = new Date(e.sale_end);
+                  start.setHours(0, 0, 0, 0);
+                  end.setHours(0, 0, 0, 0);
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  const total = Math.max(1, (end.getTime() - start.getTime()) / 86400000 + 1);
+                  const elapsed = Math.max(0, (today.getTime() - start.getTime()) / 86400000 + 1);
+                  const pct = Math.max(0, Math.min(100, (elapsed / total) * 100));
+                  const isLive = today >= start && today <= end;
+                  return (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span>📅 {e.sale_start.slice(5, 10)} ~ {e.sale_end.slice(5, 10)}</span>
+                        <span className="text-[10px] tabular-nums text-slate-500">
+                          {Math.min(Math.ceil(elapsed), Math.ceil(total))}/{Math.ceil(total)}일 · {pct.toFixed(0)}%
+                        </span>
+                      </div>
+                      <div className="h-1.5 bg-slate-100 rounded overflow-hidden mt-0.5">
+                        <div
+                          className={`h-full ${
+                            isLive ? "bg-pink-500" : pct >= 100 ? "bg-slate-300" : "bg-emerald-400"
+                          }`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </>
+                  );
+                })()}
                 {e.md_owner_name && <div>👤 {e.md_owner_name}</div>}
                 {e.vendor_name && <div>🏢 {e.vendor_name}</div>}
               </div>
