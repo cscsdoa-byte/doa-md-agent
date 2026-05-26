@@ -64,6 +64,7 @@ export interface EventItem {
   md_owner_name: string | null;  // 행사별 담당 MD (자유 입력, 채널 contacts 우선)
   ops_stock_note: string | null;     // 진행중 운영관리 — 재고 메모
   ops_claim_note: string | null;     // 진행중 운영관리 — 클레임/이슈 메모
+  ops_retro_note: string | null;     // 종료 후 회고 메모
   attachments?: EventAttachment[];   // 구좌 노출 캡쳐들
   first_seen_at: string;
   last_seen_at: string;

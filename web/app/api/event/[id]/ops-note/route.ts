@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { refreshDump, runCli } from "@/lib/cli";
 
-const VALID_KIND = new Set(["stock", "claim"]);
+const VALID_KIND = new Set(["stock", "claim", "retro"]);
 
 interface Body {
-  kind: "stock" | "claim";
+  kind: "stock" | "claim" | "retro";
   value: string;
 }
 

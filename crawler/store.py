@@ -157,6 +157,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE events ADD COLUMN ops_stock_note TEXT")  # 재고 메모
     if "ops_claim_note" not in ev_cols:
         conn.execute("ALTER TABLE events ADD COLUMN ops_claim_note TEXT")  # 클레임/이슈 메모
+    if "ops_retro_note" not in ev_cols:
+        conn.execute("ALTER TABLE events ADD COLUMN ops_retro_note TEXT")  # 종료 후 회고 메모
 
     # 채널 마스터 — 정산자동화웹 facets API 자동 동기화 + yaml 기반 정보채널.
     # key = settle_name 으로 1:1 매핑되는 게 기본. yaml 의 settle_channels 가 여러 개면 각각 row.
@@ -314,8 +316,12 @@ def set_ad_spend(conn: sqlite3.Connection, dedup_id: str, ad_spend: int | None) 
 def set_ops_note(
     conn: sqlite3.Connection, dedup_id: str, kind: str, value: str | None
 ) -> None:
-    """진행중 운영관리 메모. kind = 'stock'(재고) | 'claim'(클레임)."""
-    col = {"stock": "ops_stock_note", "claim": "ops_claim_note"}.get(kind)
+    """진행중·종료 운영관리 메모. kind = 'stock'(재고) | 'claim'(클레임) | 'retro'(회고)."""
+    col = {
+        "stock": "ops_stock_note",
+        "claim": "ops_claim_note",
+        "retro": "ops_retro_note",
+    }.get(kind)
     if not col:
         raise ValueError(f"invalid ops note kind: {kind}")
     payload = value if value else None

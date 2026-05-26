@@ -1130,9 +1130,9 @@ def main() -> None:
     pad_att = sp.add_parser("attach-del", help="첨부 삭제 (DB + 파일)")
     pad_att.add_argument("attach_id", type=int)
 
-    pon = sp.add_parser("ops-note", help="진행중 운영관리 메모 (재고/클레임)")
+    pon = sp.add_parser("ops-note", help="운영관리 메모 (재고/클레임/회고)")
     pon.add_argument("id_prefix")
-    pon.add_argument("kind", choices=["stock", "claim"])
+    pon.add_argument("kind", choices=["stock", "claim", "retro"])
     pon.add_argument("value", help="빈 문자열은 NULL")
 
     patt = sp.add_parser("attach-channel-totals", help="행사 기간 채널 전체 매출을 sales_json 에 attach (SKU 매칭 생략)")

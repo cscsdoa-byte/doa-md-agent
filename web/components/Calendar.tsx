@@ -151,6 +151,8 @@ export default function Calendar({
   // 진행중 운영관리 — 재고/클레임 메모 drafts
   const [stockDraft, setStockDraft] = useState("");
   const [claimDraft, setClaimDraft] = useState("");
+  // 종료 후 회고 메모 draft
+  const [retroDraft, setRetroDraft] = useState("");
   // 일별 매출 — lazy fetch
   const [dailyData, setDailyData] = useState<
     | null
@@ -304,6 +306,7 @@ export default function Calendar({
       setAdSpendDraft(selected.ad_spend_manual ? String(selected.ad_spend_manual) : "");
       setStockDraft(selected.ops_stock_note ?? "");
       setClaimDraft(selected.ops_claim_note ?? "");
+      setRetroDraft(selected.ops_retro_note ?? "");
       setUploadCaption("");
       setCaptionDraft({});
       setDailyData(null);
@@ -319,7 +322,7 @@ export default function Calendar({
     await apiCall("ad-spend", `/api/event/${selected.short_id}`, "PATCH", { ad_spend: v });
   }
 
-  async function saveOpsNote(kind: "stock" | "claim", value: string) {
+  async function saveOpsNote(kind: "stock" | "claim" | "retro", value: string) {
     if (!selected) return;
     setError(null);
     setBusy(`ops-${kind}`);
@@ -1420,6 +1423,41 @@ export default function Calendar({
                 </div>
               </div>
             )}
+
+            {/* 종료 후 회고 메모 — closed 상태이거나 sale_end 가 과거이면 노출 */}
+            {(() => {
+              const ended =
+                selected.status === "closed" ||
+                (selected.sale_end && new Date(selected.sale_end) < new Date());
+              if (!ended && !selected.ops_retro_note) return null;
+              const empty = !(selected.ops_retro_note && selected.ops_retro_note.trim());
+              return (
+                <div className="border-t pt-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="text-xs font-semibold text-violet-900">📝 종료 회고</div>
+                    {empty && selected.status === "closed" && (
+                      <span className="text-[10px] bg-violet-100 text-violet-900 px-1.5 py-0.5 rounded font-bold">
+                        작성 필요
+                      </span>
+                    )}
+                  </div>
+                  <textarea
+                    rows={3}
+                    className="w-full text-sm border rounded px-2 py-1.5"
+                    placeholder="예: 카테고리 탭 상단 노출 약했음. 다음엔 MD에 사전 컨택 + 광고비 일찍 집행. SKU '밤설기'가 매출 60% — 다음에도 메인."
+                    value={retroDraft}
+                    onChange={(e) => setRetroDraft(e.target.value)}
+                  />
+                  <button
+                    className="text-xs px-2 py-1 mt-1 bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50"
+                    disabled={busy !== null || retroDraft === (selected.ops_retro_note ?? "")}
+                    onClick={() => saveOpsNote("retro", retroDraft)}
+                  >
+                    {busy === "ops-retro" ? "저장 중…" : "회고 저장"}
+                  </button>
+                </div>
+              );
+            })()}
 
             {/* 담당 MD — 행사별 owner (md_owner_name) 우선, 없으면 채널 contacts */}
             {selected.md_owner_name ? (
