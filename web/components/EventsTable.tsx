@@ -453,7 +453,9 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
                   ) : <span className="text-slate-400">-</span>}
                 </div>
                 <div><span className="text-slate-500">행사 유형 / 할인</span><br/>
-                  {selectedDetail.event_type || "-"}
+                  {selectedDetail.event_type
+                    ? <b className="text-indigo-700">{selectedDetail.event_type}</b>
+                    : <span className="text-amber-700">🏷️ 미분류</span>}
                   {selectedDetail.discount_rate != null && ` · ${(selectedDetail.discount_rate * 100).toFixed(0)}%`}
                   {selectedDetail.discount_burden && ` (${selectedDetail.discount_burden})`}
                 </div>
