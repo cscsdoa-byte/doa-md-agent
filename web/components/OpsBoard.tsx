@@ -6,8 +6,16 @@ import { apiUrl } from "@/lib/api";
 import type { EventItem } from "@/lib/data";
 import { themeOf } from "@/lib/channelTheme";
 
+interface ConflictInfo {
+  other_short: string;
+  other_title: string;
+  other_channel: string;
+  common_skus: number[];
+}
+
 interface Props {
   events: EventItem[];
+  conflicts?: Record<string, ConflictInfo[]>;
 }
 
 function fmt(n: number | undefined | null): string {
@@ -30,22 +38,24 @@ const STATUS_LABEL: Record<string, string> = {
   selected: "✅ 선정",
 };
 
-export default function OpsBoard({ events }: Props) {
+export default function OpsBoard({ events, conflicts = {} }: Props) {
   const totals = useMemo(() => {
     let sale = 0;
     let op = 0;
     let ad = 0;
     let stockAlert = 0;
     let claimAlert = 0;
+    let cannibalAlert = 0;
     for (const e of events) {
       sale += e.sales?.totals?.sale ?? 0;
       op += e.sales?.totals?.operating_profit ?? 0;
       ad += e.ad_spend_manual ?? 0;
       if (e.ops_stock_note && e.ops_stock_note.trim()) stockAlert++;
       if (e.ops_claim_note && e.ops_claim_note.trim()) claimAlert++;
+      if ((conflicts[e.dedup_id]?.length ?? 0) > 0) cannibalAlert++;
     }
-    return { sale, op, ad, stockAlert, claimAlert };
-  }, [events]);
+    return { sale, op, ad, stockAlert, claimAlert, cannibalAlert };
+  }, [events, conflicts]);
 
   return (
     <div className="space-y-4">
@@ -72,8 +82,11 @@ export default function OpsBoard({ events }: Props) {
         </div>
         <div className="bg-white border rounded p-3">
           <div className="text-[10px] text-slate-500">⚠ 알림</div>
-          <div className="text-xs text-slate-700 mt-1">
-            재고 메모 <b>{totals.stockAlert}</b>건 · 클레임 <b>{totals.claimAlert}</b>건
+          <div className="text-xs text-slate-700 mt-1 leading-relaxed">
+            재고 <b>{totals.stockAlert}</b> · 클레임 <b>{totals.claimAlert}</b>
+            {totals.cannibalAlert > 0 && (
+              <span className="text-orange-700 font-bold"> · ⚡카니발 {totals.cannibalAlert}</span>
+            )}
           </div>
         </div>
       </div>
@@ -90,13 +103,16 @@ export default function OpsBoard({ events }: Props) {
           const netProfit = op - ad;
           const margin = sale > 0 ? (op / sale) * 100 : 0;
           const attachments = e.attachments ?? [];
+          const cardConflicts = conflicts[e.dedup_id] ?? [];
           const cleanTitle = e.title.replace(/^\[[^\]]+\]\s*/, "");
 
           return (
             <div
               key={e.dedup_id}
               className={`border-2 rounded-lg overflow-hidden ${
-                e.status === "running"
+                cardConflicts.length > 0
+                  ? "border-orange-500 bg-orange-50/40"
+                  : e.status === "running"
                   ? "border-pink-400 bg-pink-50/30"
                   : "border-emerald-300 bg-emerald-50/30"
               }`}
@@ -207,6 +223,35 @@ export default function OpsBoard({ events }: Props) {
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* 카니발 충돌 — 같은 SKU·기간 겹치는 다른 채널 행사 */}
+              {cardConflicts.length > 0 && (
+                <div className="px-3 py-2 border-t bg-orange-50 text-[11px] space-y-1">
+                  <div className="font-semibold text-orange-900">
+                    ⚡ 카니발 {cardConflicts.length}건 — SKU 분산 위험
+                  </div>
+                  {cardConflicts.slice(0, 2).map((c) => {
+                    const oth = themeOf(c.other_channel);
+                    const otherTitle = c.other_title.replace(/^\[[^\]]+\]\s*/, "");
+                    return (
+                      <Link
+                        key={c.other_short}
+                        href={`/?selected=${c.other_short}`}
+                        className="block bg-white rounded px-2 py-1 hover:bg-orange-100"
+                      >
+                        <span className={`font-mono font-extrabold ${oth.bold}`}>{oth.abbr}</span>
+                        <span className="ml-1 text-slate-700">{otherTitle}</span>
+                        <span className="ml-1 text-[10px] text-slate-500">
+                          SKU {c.common_skus.length}개 겹침
+                        </span>
+                      </Link>
+                    );
+                  })}
+                  {cardConflicts.length > 2 && (
+                    <div className="text-[10px] text-orange-700">+ {cardConflicts.length - 2}건 더</div>
+                  )}
                 </div>
               )}
 

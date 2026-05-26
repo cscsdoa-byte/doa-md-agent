@@ -1,5 +1,6 @@
 import Link from "next/link";
 import OpsBoard from "@/components/OpsBoard";
+import { detectConflicts } from "@/lib/conflict";
 import { loadEvents } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,13 @@ export default async function OpsPage() {
       const be = b.sale_end ?? "9999";
       return ae.localeCompare(be);
     });
+  // 카니발 충돌은 진행 중·선정에 한정하지 말고 전체 events 로 계산 (페어 상대가 다른 상태일 수 있음)
+  const conflictMap = detectConflicts(payload.events);
+  const conflictsByEvent: Record<string, { other_short: string; other_title: string; other_channel: string; common_skus: number[] }[]> = {};
+  for (const ev of items) {
+    const list = conflictMap.get(ev.dedup_id) ?? [];
+    if (list.length > 0) conflictsByEvent[ev.dedup_id] = list;
+  }
   const generatedAt = payload.generated_at?.slice(0, 16).replace("T", " ") ?? "";
 
   return (
@@ -51,7 +59,7 @@ export default async function OpsPage() {
             진행중·선정 상태 행사 없음 — 캘린더에서 행사 상태를 "진행중"으로 바꾸면 여기로 들어옵니다.
           </div>
         ) : (
-          <OpsBoard events={items} />
+          <OpsBoard events={items} conflicts={conflictsByEvent} />
         )}
       </div>
     </main>
