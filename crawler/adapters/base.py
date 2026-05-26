@@ -46,7 +46,8 @@ class Adapter(ABC):
 _ADAPTER_BY_TYPE: dict[str, str] = {
     "rss": "crawler.adapters.rss_adapter:RssAdapter",
     "html": "crawler.adapters.html_adapter:HtmlAdapter",
-    "playwright": "crawler.adapters.playwright_adapter:PlaywrightAdapter",
+    # playwright 는 채널 key 별 서브클래스 dispatch — playwright_adapter.make_adapter 사용
+    "playwright": "crawler.adapters.playwright_adapter:make_adapter",
 }
 
 
@@ -55,7 +56,8 @@ def load_adapter(channel: dict[str, Any]) -> Adapter:
     target = _ADAPTER_BY_TYPE.get(adapter_type)
     if not target:
         raise ValueError(f"Unknown adapter type: {adapter_type}")
-    module_path, cls_name = target.split(":")
+    module_path, attr_name = target.split(":")
     module = importlib.import_module(module_path)
-    cls = getattr(module, cls_name)
-    return cls(channel)
+    attr = getattr(module, attr_name)
+    # 클래스이면 인스턴스화, factory 함수면 호출
+    return attr(channel)
