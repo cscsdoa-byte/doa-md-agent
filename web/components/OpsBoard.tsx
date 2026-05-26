@@ -128,7 +128,7 @@ export default function OpsBoard({ events }: Props) {
               </div>
 
               <Link
-                href={`/?event=${e.short_id}`}
+                href={`/?selected=${e.short_id}`}
                 className="block px-3 py-2 text-sm font-semibold text-slate-900 hover:underline truncate"
                 title={e.title}
               >
