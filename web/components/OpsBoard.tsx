@@ -1,0 +1,246 @@
+"use client";
+
+import Link from "next/link";
+import { useMemo } from "react";
+import { apiUrl } from "@/lib/api";
+import type { EventItem } from "@/lib/data";
+import { themeOf } from "@/lib/channelTheme";
+
+interface Props {
+  events: EventItem[];
+}
+
+function fmt(n: number | undefined | null): string {
+  if (n === undefined || n === null) return "-";
+  return Math.round(n).toLocaleString();
+}
+
+function daysUntil(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  running: "🔴 진행중",
+  selected: "✅ 선정",
+};
+
+export default function OpsBoard({ events }: Props) {
+  const totals = useMemo(() => {
+    let sale = 0;
+    let op = 0;
+    let ad = 0;
+    let stockAlert = 0;
+    let claimAlert = 0;
+    for (const e of events) {
+      sale += e.sales?.totals?.sale ?? 0;
+      op += e.sales?.totals?.operating_profit ?? 0;
+      ad += e.ad_spend_manual ?? 0;
+      if (e.ops_stock_note && e.ops_stock_note.trim()) stockAlert++;
+      if (e.ops_claim_note && e.ops_claim_note.trim()) claimAlert++;
+    }
+    return { sale, op, ad, stockAlert, claimAlert };
+  }, [events]);
+
+  return (
+    <div className="space-y-4">
+      {/* 상단 요약 — 진행중·선정 합산 */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+        <div className="bg-white border rounded p-3">
+          <div className="text-[10px] text-slate-500">행사 수</div>
+          <div className="text-xl font-bold text-slate-900">{events.length}</div>
+        </div>
+        <div className="bg-white border rounded p-3">
+          <div className="text-[10px] text-slate-500">행사 매출 합계</div>
+          <div className="text-xl font-bold text-amber-700">{fmt(totals.sale)}원</div>
+        </div>
+        <div className="bg-white border rounded p-3">
+          <div className="text-[10px] text-slate-500">영업이익 합계</div>
+          <div className="text-xl font-bold text-emerald-700">{fmt(totals.op)}원</div>
+        </div>
+        <div className="bg-white border rounded p-3">
+          <div className="text-[10px] text-slate-500">집행 광고비</div>
+          <div className="text-xl font-bold text-rose-600">{fmt(totals.ad)}원</div>
+          <div className="text-[10px] text-slate-500">
+            ROAS {totals.ad > 0 ? (totals.sale / totals.ad).toFixed(2) : "-"}배
+          </div>
+        </div>
+        <div className="bg-white border rounded p-3">
+          <div className="text-[10px] text-slate-500">⚠ 알림</div>
+          <div className="text-xs text-slate-700 mt-1">
+            재고 메모 <b>{totals.stockAlert}</b>건 · 클레임 <b>{totals.claimAlert}</b>건
+          </div>
+        </div>
+      </div>
+
+      {/* 카드 그리드 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {events.map((e) => {
+          const th = themeOf(e.channel_key);
+          const dEnd = daysUntil(e.sale_end);
+          const sale = e.sales?.totals?.sale ?? 0;
+          const op = e.sales?.totals?.operating_profit ?? 0;
+          const ad = e.ad_spend_manual ?? 0;
+          const roas = ad > 0 ? sale / ad : 0;
+          const netProfit = op - ad;
+          const margin = sale > 0 ? (op / sale) * 100 : 0;
+          const attachments = e.attachments ?? [];
+          const cleanTitle = e.title.replace(/^\[[^\]]+\]\s*/, "");
+
+          return (
+            <div
+              key={e.dedup_id}
+              className={`border-2 rounded-lg overflow-hidden ${
+                e.status === "running"
+                  ? "border-pink-400 bg-pink-50/30"
+                  : "border-emerald-300 bg-emerald-50/30"
+              }`}
+            >
+              <div className="px-3 py-2 flex items-center justify-between border-b bg-white">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className={`font-mono font-extrabold text-sm ${th.bold}`}>{th.abbr}</span>
+                  <span className="text-xs text-slate-500">{th.label}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">
+                    {STATUS_LABEL[e.status] ?? e.status}
+                  </span>
+                </div>
+                {dEnd !== null && (
+                  <span
+                    className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${
+                      dEnd < 0
+                        ? "bg-slate-200 text-slate-500"
+                        : dEnd === 0
+                        ? "bg-red-600 text-white"
+                        : dEnd <= 3
+                        ? "bg-orange-500 text-white"
+                        : "bg-slate-100 text-slate-700"
+                    }`}
+                    title={`종료일 ${e.sale_end}`}
+                  >
+                    {dEnd < 0 ? `종료 D+${-dEnd}` : `종료 D-${dEnd}`}
+                  </span>
+                )}
+              </div>
+
+              <Link
+                href={`/?event=${e.short_id}`}
+                className="block px-3 py-2 text-sm font-semibold text-slate-900 hover:underline truncate"
+                title={e.title}
+              >
+                {cleanTitle}
+              </Link>
+
+              <div className="px-3 pb-2 text-[11px] text-slate-600 space-y-0.5">
+                {e.sale_start && e.sale_end && (
+                  <div>📅 {e.sale_start.slice(5, 10)} ~ {e.sale_end.slice(5, 10)}</div>
+                )}
+                {e.md_owner_name && <div>👤 {e.md_owner_name}</div>}
+                {e.vendor_name && <div>🏢 {e.vendor_name}</div>}
+              </div>
+
+              {/* 매출 / 광고 / 마진 */}
+              <div className="px-3 py-2 bg-white border-t grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
+                <div>
+                  <span className="text-slate-500">매출 </span>
+                  <b className="text-amber-800">{fmt(sale)}</b>원
+                </div>
+                <div>
+                  <span className="text-slate-500">영업이익 </span>
+                  <b className="text-emerald-700">{fmt(op)}</b>원
+                </div>
+                <div>
+                  <span className="text-slate-500">광고비 </span>
+                  <b className="text-rose-600">{fmt(ad)}</b>원
+                </div>
+                <div>
+                  <span className="text-slate-500">마진 </span>
+                  <b className={margin >= 10 ? "text-emerald-700" : margin >= 0 ? "text-amber-700" : "text-rose-600"}>
+                    {margin.toFixed(1)}%
+                  </b>
+                </div>
+                {ad > 0 && (
+                  <>
+                    <div>
+                      <span className="text-slate-500">ROAS </span>
+                      <b className={roas >= 3 ? "text-emerald-700" : roas >= 2 ? "text-amber-700" : "text-rose-600"}>
+                        {roas.toFixed(2)}배
+                      </b>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">실순이익 </span>
+                      <b className={netProfit >= 0 ? "text-emerald-700" : "text-rose-600"}>{fmt(netProfit)}</b>원
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* 구좌 캡쳐 썸네일 */}
+              {attachments.length > 0 && (
+                <div className="px-3 py-2 border-t bg-slate-50">
+                  <div className="text-[10px] text-slate-500 mb-1">📸 구좌 노출 ({attachments.length})</div>
+                  <div className="flex gap-1 overflow-x-auto">
+                    {attachments.slice(0, 4).map((a) => (
+                      <a
+                        key={a.id}
+                        href={apiUrl(`/api/event/${e.short_id}/attachment/${a.id}`)}
+                        target="_blank"
+                        rel="noopener"
+                        className="shrink-0"
+                        title={a.caption ?? a.original_name ?? ""}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={apiUrl(`/api/event/${e.short_id}/attachment/${a.id}`)}
+                          alt=""
+                          className="w-16 h-16 object-cover rounded border bg-white"
+                        />
+                      </a>
+                    ))}
+                    {attachments.length > 4 && (
+                      <div className="shrink-0 w-16 h-16 rounded border bg-white flex items-center justify-center text-[11px] text-slate-500">
+                        +{attachments.length - 4}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 운영관리 메모 (재고/클레임) */}
+              {(e.ops_stock_note || e.ops_claim_note) && (
+                <div className="px-3 py-2 border-t bg-white text-[11px] space-y-1">
+                  {e.ops_stock_note && (
+                    <div className="bg-amber-50 border-l-2 border-amber-400 px-2 py-1 rounded">
+                      <div className="text-[10px] font-semibold text-amber-900">📦 재고</div>
+                      <div className="text-slate-700 whitespace-pre-wrap line-clamp-3">{e.ops_stock_note}</div>
+                    </div>
+                  )}
+                  {e.ops_claim_note && (
+                    <div className="bg-rose-50 border-l-2 border-rose-400 px-2 py-1 rounded">
+                      <div className="text-[10px] font-semibold text-rose-900">🚨 클레임</div>
+                      <div className="text-slate-700 whitespace-pre-wrap line-clamp-3">{e.ops_claim_note}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {e.memo && !e.ops_stock_note && !e.ops_claim_note && (
+                <div className="px-3 py-2 border-t bg-white text-[11px] text-slate-600 line-clamp-2" title={e.memo}>
+                  📝 {e.memo}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="text-[10px] text-slate-400 text-center mt-2">
+        ※ 매출/마진은 정산자동화웹 매칭 결과. 우측 패널에서 갱신하거나 다음 폴링(sales-all)을 기다리세요.
+      </div>
+    </div>
+  );
+}

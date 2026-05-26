@@ -969,6 +969,9 @@ export default function Calendar({
                   {items.slice(0, 4).map((e) => {
                     const d = daysUntil(e.deadline_at);
                     const isUrgent = d !== null && d >= 0 && d <= 3 && e.status !== "closed" && e.status !== "skip";
+                    const dEnd = daysUntil(e.sale_end);
+                    const showEnd = (e.status === "running" || e.status === "selected") &&
+                      dEnd !== null && dEnd >= 0 && dEnd <= 3;
                     const hasConflict = conflicts.has(e.dedup_id);
                     const th = themeOf(e.channel_key);
                     return (
@@ -990,9 +993,23 @@ export default function Calendar({
                                 ? "bg-orange-500 text-white"
                                 : "bg-amber-400 text-amber-950"
                             }`}
-                            title={`마감 D-${d}`}
+                            title={`신청 마감 D-${d}`}
                           >
                             D-{d}
+                          </span>
+                        )}
+                        {showEnd && (
+                          <span
+                            className={`shrink-0 px-1 rounded text-[10px] font-extrabold ${
+                              dEnd === 0
+                                ? "bg-purple-700 text-white"
+                                : dEnd === 1
+                                ? "bg-purple-600 text-white"
+                                : "bg-purple-500 text-white"
+                            }`}
+                            title={`행사 종료 D-${dEnd}`}
+                          >
+                            🏁{dEnd}
                           </span>
                         )}
                         {hasConflict && <span className="text-orange-600 font-bold shrink-0" title="다른 채널과 같은 SKU·기간 충돌">⚡</span>}

@@ -15,6 +15,9 @@ export default async function Home() {
   ]);
   const generatedAt = payload.generated_at?.slice(0, 16).replace("T", " ") ?? "";
   const settleBase = process.env.NEXT_PUBLIC_SETTLE_BASE_URL || "http://3.37.214.243";
+  const opsCount = payload.events.filter(
+    (e) => e.status === "running" || e.status === "selected"
+  ).length;
 
   return (
     <main className="min-h-screen bg-slate-50 p-6">
@@ -27,6 +30,17 @@ export default async function Home() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href="/ops"
+              className={`px-4 py-2 text-sm rounded font-medium ${
+                opsCount > 0
+                  ? "bg-pink-100 border border-pink-400 hover:bg-pink-200 text-pink-900"
+                  : "bg-white border hover:bg-slate-50 text-slate-700"
+              }`}
+              title="진행중·선정 행사 한눈 보드"
+            >
+              🛠️ 운영 보드{opsCount > 0 && <span className="ml-1 font-extrabold">({opsCount})</span>}
+            </Link>
             <Link
               href="/events"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
