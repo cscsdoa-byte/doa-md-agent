@@ -34,6 +34,13 @@ export default async function Home() {
               📊 행사 표
             </Link>
             <Link
+              href="/jeongsan"
+              className="px-4 py-2 text-sm bg-amber-100 border border-amber-300 rounded hover:bg-amber-200 text-amber-900 font-medium"
+              title="정산자동화웹을 MD 에이전트 안에서 같이 보기"
+            >
+              💰 정산자동화
+            </Link>
+            <Link
               href="/templates"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
             >
