@@ -134,6 +134,30 @@ def _migrate(conn: sqlite3.Connection) -> None:
         )"""
     )
 
+    # 행사별 구좌 노출 캡쳐 첨부. 파일 자체는 data/attachments/<dedup_id>/<filename>.
+    # DB에는 메타만 (캡션은 "메인 배너 1번 슬롯" 등 한 줄 설명).
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS event_attachments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dedup_id      TEXT NOT NULL,
+            filename      TEXT NOT NULL,
+            original_name TEXT,
+            caption       TEXT,
+            mime_type     TEXT,
+            size_bytes    INTEGER,
+            created_at    TEXT NOT NULL
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_attach_event ON event_attachments(dedup_id)")
+
+    # 진행중 운영관리 메모 (5종세트 — 노출/재고/광고/일별매출/클레임 중 자유텍스트 필드).
+    # ad_spend_manual / applied_skus / sales_json 이외의 슬롯들.
+    ev_cols = {row[1] for row in conn.execute("PRAGMA table_info(events)")}
+    if "ops_stock_note" not in ev_cols:
+        conn.execute("ALTER TABLE events ADD COLUMN ops_stock_note TEXT")  # 재고 메모
+    if "ops_claim_note" not in ev_cols:
+        conn.execute("ALTER TABLE events ADD COLUMN ops_claim_note TEXT")  # 클레임/이슈 메모
+
     # 채널 마스터 — 정산자동화웹 facets API 자동 동기화 + yaml 기반 정보채널.
     # key = settle_name 으로 1:1 매핑되는 게 기본. yaml 의 settle_channels 가 여러 개면 각각 row.
     # source: "settle" (정산자동화웹 동기화) / "yaml" (정보채널, 어댑터와 묶임) / "manual" (사용자 추가)
@@ -285,6 +309,84 @@ def set_ad_spend(conn: sqlite3.Connection, dedup_id: str, ad_spend: int | None) 
         "UPDATE events SET ad_spend_manual = ? WHERE dedup_id = ?",
         (ad_spend, dedup_id),
     )
+
+
+def set_ops_note(
+    conn: sqlite3.Connection, dedup_id: str, kind: str, value: str | None
+) -> None:
+    """진행중 운영관리 메모. kind = 'stock'(재고) | 'claim'(클레임)."""
+    col = {"stock": "ops_stock_note", "claim": "ops_claim_note"}.get(kind)
+    if not col:
+        raise ValueError(f"invalid ops note kind: {kind}")
+    payload = value if value else None
+    conn.execute(
+        f"UPDATE events SET {col} = ? WHERE dedup_id = ?",
+        (payload, dedup_id),
+    )
+
+
+# ----- 행사 첨부 (구좌 노출 캡쳐) CRUD -----
+
+def list_attachments(conn: sqlite3.Connection, dedup_id: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM event_attachments WHERE dedup_id = ? ORDER BY id",
+        (dedup_id,),
+    ).fetchall()
+
+
+def add_attachment(
+    conn: sqlite3.Connection,
+    dedup_id: str,
+    filename: str,
+    original_name: str | None = None,
+    caption: str | None = None,
+    mime_type: str | None = None,
+    size_bytes: int | None = None,
+) -> int:
+    now = datetime.now().isoformat()
+    cur = conn.execute(
+        """INSERT INTO event_attachments
+           (dedup_id, filename, original_name, caption, mime_type, size_bytes, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (dedup_id, filename, original_name, caption, mime_type, size_bytes, now),
+    )
+    return cur.lastrowid or 0
+
+
+def update_attachment_caption(
+    conn: sqlite3.Connection, attach_id: int, caption: str | None
+) -> bool:
+    cur = conn.execute(
+        "UPDATE event_attachments SET caption = ? WHERE id = ?",
+        (caption if caption else None, attach_id),
+    )
+    return cur.rowcount > 0
+
+
+def get_attachment(
+    conn: sqlite3.Connection, attach_id: int
+) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM event_attachments WHERE id = ?", (attach_id,)
+    ).fetchone()
+
+
+def delete_attachment(conn: sqlite3.Connection, attach_id: int) -> sqlite3.Row | None:
+    """삭제하기 전에 row 를 반환 (파일 삭제용 filename/dedup_id 알아야 함)."""
+    row = get_attachment(conn, attach_id)
+    if row is None:
+        return None
+    conn.execute("DELETE FROM event_attachments WHERE id = ?", (attach_id,))
+    return row
+
+
+def delete_attachments_for_event(
+    conn: sqlite3.Connection, dedup_id: str
+) -> list[sqlite3.Row]:
+    """행사 삭제 시 cascade. 반환된 row 들의 filename 으로 파일도 같이 지워야 함."""
+    rows = list_attachments(conn, dedup_id)
+    conn.execute("DELETE FROM event_attachments WHERE dedup_id = ?", (dedup_id,))
+    return rows
 
 
 # ----- MD 연락처 CRUD -----

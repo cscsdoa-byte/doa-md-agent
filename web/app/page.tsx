@@ -41,6 +41,13 @@ export default async function Home() {
               💰 정산자동화
             </Link>
             <Link
+              href="/toss-upload"
+              className="px-4 py-2 text-sm bg-sky-100 border border-sky-300 rounded hover:bg-sky-200 text-sky-900 font-medium"
+              title="토스 정산 csv 업로드 (매월 1회)"
+            >
+              🧾 토스 정산
+            </Link>
+            <Link
               href="/templates"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
             >

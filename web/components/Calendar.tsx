@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiUrl } from "@/lib/api";
-import type { Contact, EventItem, EventTemplate } from "@/lib/data";
+import type { Contact, EventAttachment, EventItem, EventTemplate } from "@/lib/data";
 import type { ChannelDef } from "@/lib/channels";
 import { themeOf } from "@/lib/channelTheme";
 import { detectConflicts } from "@/lib/conflict";
@@ -149,6 +149,13 @@ export default function Calendar({
   }
   // 광고비 draft
   const [adSpendDraft, setAdSpendDraft] = useState("");
+  // 진행중 운영관리 — 재고/클레임 메모 drafts
+  const [stockDraft, setStockDraft] = useState("");
+  const [claimDraft, setClaimDraft] = useState("");
+  // 첨부(구좌 캡쳐) 업로드 상태
+  const [uploadCaption, setUploadCaption] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [captionDraft, setCaptionDraft] = useState<Record<number, string>>({});
 
   // 새 행사 추가 폼 토글 — 판매채널만
   const salesChannels = useMemo(() => channels.filter((c) => c.is_sales), [channels]);
@@ -287,6 +294,10 @@ export default function Calendar({
       setEditChannel(selected.channel_key);
       setShowEdit(false);
       setAdSpendDraft(selected.ad_spend_manual ? String(selected.ad_spend_manual) : "");
+      setStockDraft(selected.ops_stock_note ?? "");
+      setClaimDraft(selected.ops_claim_note ?? "");
+      setUploadCaption("");
+      setCaptionDraft({});
       setSkuQuery(""); setSkuHits([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -296,6 +307,73 @@ export default function Calendar({
     if (!selected) return;
     const v = parseInt(adSpendDraft || "0", 10) || 0;
     await apiCall("ad-spend", `/api/event/${selected.short_id}`, "PATCH", { ad_spend: v });
+  }
+
+  async function saveOpsNote(kind: "stock" | "claim", value: string) {
+    if (!selected) return;
+    setError(null);
+    setBusy(`ops-${kind}`);
+    try {
+      const r = await fetch(apiUrl(`/api/event/${selected.short_id}/ops-note`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, value }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setError(j.error || `HTTP ${r.status}`);
+        return;
+      }
+      startTransition(() => router.refresh());
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleAttachUpload(file: File) {
+    if (!selected) return;
+    setError(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (uploadCaption.trim()) fd.append("caption", uploadCaption.trim());
+      const r = await fetch(apiUrl(`/api/event/${selected.short_id}/attachment`), {
+        method: "POST",
+        body: fd,
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setError(j.error || `HTTP ${r.status}`);
+        return;
+      }
+      setUploadCaption("");
+      startTransition(() => router.refresh());
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleAttachDelete(attach: EventAttachment) {
+    if (!selected) return;
+    if (!confirm(`이 캡쳐를 삭제할까요?\n${attach.caption ?? attach.original_name ?? attach.filename}`)) return;
+    await apiCall("attach-del", `/api/event/${selected.short_id}/attachment/${attach.id}`, "DELETE");
+  }
+
+  async function handleAttachCaption(attach: EventAttachment) {
+    if (!selected) return;
+    const next = captionDraft[attach.id] ?? "";
+    if (next === (attach.caption ?? "")) return;
+    await apiCall(
+      "attach-cap",
+      `/api/event/${selected.short_id}/attachment/${attach.id}`,
+      "PATCH",
+      { caption: next },
+    );
   }
 
   async function saveEditFields() {

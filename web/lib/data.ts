@@ -22,6 +22,17 @@ export interface SalesTotals {
   ad_spend_is_filtered?: boolean;
 }
 
+export interface EventAttachment {
+  id: number;
+  dedup_id: string;
+  filename: string;
+  original_name: string | null;
+  caption: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  created_at: string;
+}
+
 export interface EventItem {
   dedup_id: string;
   short_id: string;
@@ -51,6 +62,9 @@ export interface EventItem {
   vendor_name: string | null;
   vendor_contact: string | null;
   md_owner_name: string | null;  // 행사별 담당 MD (자유 입력, 채널 contacts 우선)
+  ops_stock_note: string | null;     // 진행중 운영관리 — 재고 메모
+  ops_claim_note: string | null;     // 진행중 운영관리 — 클레임/이슈 메모
+  attachments?: EventAttachment[];   // 구좌 노출 캡쳐들
   first_seen_at: string;
   last_seen_at: string;
 }

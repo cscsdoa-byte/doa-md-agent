@@ -14,14 +14,19 @@ from crawler.store import (
     STATUS_LABELS,
     STATUS_VALUES,
     add_applied_sku,
+    add_attachment,
     add_contact,
     add_manual_event,
     add_template,
     connect,
+    delete_attachment,
+    delete_attachments_for_event,
     delete_contact,
     delete_event,
     delete_template,
     get_applied_skus,
+    get_attachment,
+    list_attachments,
     list_channels_master,
     list_contacts,
     list_recent,
@@ -33,8 +38,10 @@ from crawler.store import (
     set_event_period,
     set_event_sales,
     set_memo,
+    set_ops_note,
     set_status,
     stats,
+    update_attachment_caption,
     update_contact,
     update_event_fields,
     upsert_events,
@@ -479,6 +486,7 @@ def cmd_dump_json(out_path: str | None) -> int:
             d = dict(r)
             d["short_id"] = d["dedup_id"][:6]
             d["applied_skus"] = get_applied_skus(conn, d["dedup_id"])
+            d["attachments"] = [dict(a) for a in list_attachments(conn, d["dedup_id"])]
             if d.get("sales_json"):
                 try:
                     d["sales"] = _json.loads(d["sales_json"])
@@ -725,12 +733,15 @@ def cmd_update(
 
 def cmd_delete(id_prefix: str, force: bool) -> int:
     """행사 삭제. 기본은 수동등록(source='manual')만. --force 시 강제 삭제 (다음 crawl 재수집됨)."""
+    import shutil
     with connect() as conn:
         try:
             evt = resolve_event(conn, id_prefix)
         except LookupError as e:
             print(f"ERROR: {e}", file=sys.stderr)
             return 1
+        # 행사 삭제 전 첨부 메타·파일 cascade
+        removed = delete_attachments_for_event(conn, evt["dedup_id"])
         ok = delete_event(conn, evt["dedup_id"], manual_only=not force)
         if not ok:
             print(
@@ -739,7 +750,90 @@ def cmd_delete(id_prefix: str, force: bool) -> int:
                 file=sys.stderr,
             )
             return 1
+        if removed:
+            att_dir = Path(__file__).resolve().parent.parent / "data" / "attachments" / evt["dedup_id"]
+            if att_dir.exists():
+                shutil.rmtree(att_dir, ignore_errors=True)
         print(f"✓ {evt['dedup_id'][:6]} 삭제: {evt['title'][:60]}")
+    return 0
+
+
+def cmd_attach_add(
+    id_prefix: str,
+    filename: str,
+    original_name: str | None,
+    caption: str | None,
+    mime_type: str | None,
+    size_bytes: int | None,
+) -> int:
+    """행사 첨부 메타 DB 등록. 파일 자체는 호출자(Next.js)가 data/attachments/<dedup_id>/<filename> 에 미리 저장.
+
+    성공 시 stdout 에 attachment id (정수 한 줄) 출력 — API route 가 파싱.
+    """
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        att_id = add_attachment(
+            conn,
+            dedup_id=evt["dedup_id"],
+            filename=filename,
+            original_name=original_name,
+            caption=caption,
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+        )
+        print(att_id)
+    return 0
+
+
+def cmd_attach_update(attach_id: int, caption: str) -> int:
+    """첨부 캡션 수정 (빈 문자열은 NULL)."""
+    with connect() as conn:
+        ok = update_attachment_caption(conn, attach_id, caption)
+        if not ok:
+            print(f"ERROR: attachment {attach_id} 없음", file=sys.stderr)
+            return 1
+        print(f"✓ attachment {attach_id} 캡션 갱신")
+    return 0
+
+
+def cmd_attach_del(attach_id: int) -> int:
+    """첨부 삭제. 메타 row 와 파일 둘 다 제거. stdout 에 삭제된 filename 출력."""
+    with connect() as conn:
+        row = delete_attachment(conn, attach_id)
+        if row is None:
+            print(f"ERROR: attachment {attach_id} 없음", file=sys.stderr)
+            return 1
+        att_path = (
+            Path(__file__).resolve().parent.parent
+            / "data" / "attachments" / row["dedup_id"] / row["filename"]
+        )
+        if att_path.exists():
+            try:
+                att_path.unlink()
+            except OSError as e:
+                print(f"WARN: 파일 삭제 실패 {att_path}: {e}", file=sys.stderr)
+        print(row["filename"])
+    return 0
+
+
+def cmd_ops_note(id_prefix: str, kind: str, value: str) -> int:
+    """진행중 운영관리 메모. kind = stock | claim."""
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        try:
+            set_ops_note(conn, evt["dedup_id"], kind, value)
+        except ValueError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        print(f"✓ {evt['dedup_id'][:6]} ops-{kind} 갱신")
     return 0
 
 
@@ -948,6 +1042,26 @@ def main() -> None:
     pup.add_argument("--channel", default=None, help="채널 변경 (channels.yaml 의 key)")
     pup.add_argument("--vendor-contact", default=None)
 
+    paa = sp.add_parser("attach-add", help="행사 첨부(구좌 캡쳐) 메타 등록 — 파일은 미리 저장돼 있어야 함")
+    paa.add_argument("id_prefix")
+    paa.add_argument("filename", help="data/attachments/<dedup_id>/<filename> 에 저장된 파일명")
+    paa.add_argument("--original", default=None, help="업로드 원본 파일명")
+    paa.add_argument("--caption", default=None, help='한 줄 캡션 (예: "메인 배너 1번 슬롯")')
+    paa.add_argument("--mime", default=None, help="MIME 타입 (image/png 등)")
+    paa.add_argument("--size", type=int, default=None, help="파일 크기 (bytes)")
+
+    pau = sp.add_parser("attach-update", help="첨부 캡션 수정")
+    pau.add_argument("attach_id", type=int)
+    pau.add_argument("caption", help="빈 문자열은 NULL")
+
+    pad_att = sp.add_parser("attach-del", help="첨부 삭제 (DB + 파일)")
+    pad_att.add_argument("attach_id", type=int)
+
+    pon = sp.add_parser("ops-note", help="진행중 운영관리 메모 (재고/클레임)")
+    pon.add_argument("id_prefix")
+    pon.add_argument("kind", choices=["stock", "claim"])
+    pon.add_argument("value", help="빈 문자열은 NULL")
+
     patt = sp.add_parser("attach-channel-totals", help="행사 기간 채널 전체 매출을 sales_json 에 attach (SKU 매칭 생략)")
     patt.add_argument("id_prefix")
     patt.add_argument("--channel", required=True, help="정산자동화웹 채널명 (예: 쇼핑엔티)")
@@ -1040,6 +1154,17 @@ def main() -> None:
         sys.exit(cmd_template_add(args.name, args.channel_key, args.title_pattern, args.category, args.recurrence, args.memo))
     elif args.cmd == "template-del":
         sys.exit(cmd_template_del(args.template_id))
+    elif args.cmd == "attach-add":
+        sys.exit(cmd_attach_add(
+            args.id_prefix, args.filename, args.original, args.caption,
+            args.mime, args.size,
+        ))
+    elif args.cmd == "attach-update":
+        sys.exit(cmd_attach_update(args.attach_id, args.caption))
+    elif args.cmd == "attach-del":
+        sys.exit(cmd_attach_del(args.attach_id))
+    elif args.cmd == "ops-note":
+        sys.exit(cmd_ops_note(args.id_prefix, args.kind, args.value))
 
 
 if __name__ == "__main__":
