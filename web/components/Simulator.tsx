@@ -18,13 +18,13 @@ interface ChannelPreset {
   rate: number;
 }
 
-const CHANNELS: ChannelPreset[] = [
+// fallback — channels_master 에 fee 등록 안 됐을 때 (또는 props 비었을 때)
+const FALLBACK_CHANNELS: ChannelPreset[] = [
   { label: "쿠팡 10.6%",       rate: 10.6 },
   { label: "네이버 2.73%",     rate: 2.73 },
-  { label: "토스 8%",          rate: 8 },
+  { label: "토스 10.4%",       rate: 10.4 },
   { label: "11번가 13%",       rate: 13 },
   { label: "G마켓/옥션 13%",   rate: 13 },
-  { label: "NS홈쇼핑 15%",     rate: 15 },
   { label: "카카오 3.3%",      rate: 3.3 },
 ];
 
@@ -33,8 +33,13 @@ const DISCOUNT_SCENARIOS = [5, 10, 15, 20, 25, 30];
 const fmtWon = (n: number) => Math.round(n).toLocaleString() + "원";
 const fmtPct = (n: number) => n.toFixed(1) + "%";
 
-export default function Simulator() {
+interface SimulatorProps {
+  channelPresets?: ChannelPreset[];
+}
+
+export default function Simulator({ channelPresets }: SimulatorProps = {}) {
   const params = useSearchParams();
+  const CHANNELS = (channelPresets && channelPresets.length > 0) ? channelPresets : FALLBACK_CHANNELS;
 
   const [cost, setCost] = useState(8000);
   const [price, setPrice] = useState(15000);
