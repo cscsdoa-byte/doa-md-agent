@@ -89,28 +89,29 @@ export default function TodaysActionsCard({ events }: Props) {
   if (groups.length === 0) return null;
   const totalActions = groups.reduce((s, g) => s + g.events.length, 0);
 
-  const colorMap: Record<string, { bg: string; border: string; text: string; badge: string }> = {
-    rose: { bg: "bg-rose-50", border: "border-rose-300", text: "text-rose-900", badge: "bg-rose-200 text-rose-900" },
-    amber: { bg: "bg-amber-50", border: "border-amber-300", text: "text-amber-900", badge: "bg-amber-200 text-amber-900" },
-    violet: { bg: "bg-violet-50", border: "border-violet-300", text: "text-violet-900", badge: "bg-violet-200 text-violet-900" },
-    slate: { bg: "bg-slate-50", border: "border-slate-300", text: "text-slate-700", badge: "bg-slate-200 text-slate-700" },
-    blue: { bg: "bg-blue-50", border: "border-blue-300", text: "text-blue-900", badge: "bg-blue-200 text-blue-900" },
+  // 색은 severity 만 의미 (좌측 막대 + 카운트 색). 배경은 동일 회색.
+  const severityMap: Record<string, { bar: string; metaText: string }> = {
+    rose:   { bar: "border-l-rose-500",   metaText: "text-rose-600" },
+    amber:  { bar: "border-l-amber-500",  metaText: "text-amber-700" },
+    violet: { bar: "border-l-violet-500", metaText: "text-violet-700" },
+    slate:  { bar: "border-l-slate-400",  metaText: "text-slate-600" },
+    blue:   { bar: "border-l-blue-500",   metaText: "text-blue-700" },
   };
 
   return (
-    <div className="mb-4 bg-white border-2 border-slate-300 rounded-lg p-3">
+    <div className="mb-4 bg-white border border-slate-200 rounded p-3">
       <div className="text-sm font-bold text-slate-800 mb-2 flex items-baseline justify-between">
-        <span>📋 오늘 할 일 ({totalActions}건)</span>
+        <span>📋 오늘 할 일 <span className="text-slate-500 font-normal">({totalActions}건)</span></span>
         <span className="text-[10px] text-slate-400 font-normal">행사 클릭 → 캘린더 상세 패널</span>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {groups.map((g) => {
-          const c = colorMap[g.color];
+          const s = severityMap[g.color];
           return (
-            <div key={g.key} className={`rounded p-2 border ${c.bg} ${c.border}`}>
-              <div className={`text-xs font-bold mb-1 flex items-baseline justify-between ${c.text}`}>
-                <span>{g.icon} {g.label}</span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${c.badge}`}>{g.events.length}건</span>
+            <div key={g.key} className={`rounded bg-slate-50 border border-slate-200 border-l-4 ${s.bar} p-2`}>
+              <div className="text-xs font-semibold mb-1 flex items-baseline justify-between text-slate-700">
+                <span><span className="mr-0.5">{g.icon}</span>{g.label}</span>
+                <span className={`text-[11px] font-bold ${s.metaText}`}>{g.events.length}건</span>
               </div>
               <ul className="space-y-0.5">
                 {g.events.slice(0, 6).map(({ e, meta }) => {
@@ -122,14 +123,14 @@ export default function TodaysActionsCard({ events }: Props) {
                         className="text-[11px] flex items-center gap-1.5 hover:bg-white rounded px-1 py-0.5"
                       >
                         <span className={`font-mono font-extrabold text-[10px] ${th.bold}`}>{th.abbr}</span>
-                        <span className="flex-1 truncate text-slate-800">{e.title}</span>
-                        <span className={`text-[10px] font-bold whitespace-nowrap ${c.text}`}>{meta}</span>
+                        <span className="flex-1 truncate text-slate-700">{e.title}</span>
+                        <span className={`text-[10px] font-semibold whitespace-nowrap ${s.metaText}`}>{meta}</span>
                       </Link>
                     </li>
                   );
                 })}
                 {g.events.length > 6 && (
-                  <li className="text-[10px] text-slate-500 pl-1">…외 {g.events.length - 6}건</li>
+                  <li className="text-[10px] text-slate-400 pl-1">…외 {g.events.length - 6}건</li>
                 )}
               </ul>
             </div>

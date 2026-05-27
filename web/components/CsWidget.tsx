@@ -169,17 +169,17 @@ export default function CsWidget({ cs, hourly, top }: Props) {
             {top.slice(0, 5).map((q, i) => {
               const tip = autoReplyTip(q.sample);
               return (
-                <li key={i} className="bg-emerald-50 px-2 py-1 rounded">
+                <li key={i} className="bg-slate-50 border border-slate-200 px-2 py-1 rounded">
                   <div className="text-[11px] flex items-baseline gap-2">
                     <span className="font-mono text-slate-400">{i + 1}.</span>
-                    <span className="flex-1 truncate" title={q.sample}>{q.sample}</span>
-                    <span className="text-[10px] text-emerald-700 font-bold whitespace-nowrap">{q.count}회</span>
+                    <span className="flex-1 truncate text-slate-800" title={q.sample}>{q.sample}</span>
+                    <span className="text-[10px] text-slate-700 font-bold whitespace-nowrap">{q.count}회</span>
                     {q.variants > 1 && (
                       <span className="text-[10px] text-slate-400 whitespace-nowrap">+{q.variants - 1}변형</span>
                     )}
                   </div>
                   {tip && (
-                    <div className="text-[10px] text-emerald-800 mt-0.5 ml-4">{tip}</div>
+                    <div className="text-[10px] text-slate-600 mt-0.5 ml-4">{tip}</div>
                   )}
                 </li>
               );

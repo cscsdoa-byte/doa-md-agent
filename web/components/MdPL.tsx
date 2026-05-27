@@ -52,7 +52,7 @@ export default function MdPL({ events }: Props) {
           const net = r.op - r.ad;
           const sharePct = (r.sale / maxSale) * 100;
           return (
-            <div key={r.name} className="bg-white border-l-4 border-blue-400 rounded p-3">
+            <div key={r.name} className="bg-white border border-slate-200 border-l-4 border-l-slate-400 rounded p-3">
               <div className="flex items-center justify-between mb-1">
                 <div className="font-bold text-slate-900 text-base">{r.name}</div>
                 <div className="text-[10px] bg-blue-100 text-blue-900 px-1.5 py-0.5 rounded font-bold">

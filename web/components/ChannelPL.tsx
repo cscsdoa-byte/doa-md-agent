@@ -191,20 +191,20 @@ export default function ChannelPL({ totals, prevTotals, range, channels, events,
   return (
     <div className="mb-4 space-y-3">
       {/* 1) 전체 합계 (광고비 포함 — 광고비는 채널별 분할 안 됨) */}
-      <div className="border-l-4 border-amber-500 bg-amber-50 rounded p-4">
+      <div className="bg-white border border-slate-200 border-l-4 border-l-slate-700 rounded p-4">
         <div className="flex items-baseline justify-between mb-2">
-          <div className="text-base font-bold text-amber-900">📊 조선팔도떡집 이번 달 PL (전체)</div>
-          <div className="text-[11px] text-amber-700">{range?.start} ~ {range?.end}</div>
+          <div className="text-base font-bold text-slate-800">📊 조선팔도떡집 이번 달 PL (전체)</div>
+          <div className="text-[11px] text-slate-500">{range?.start} ~ {range?.end}</div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-          <div className="bg-white rounded p-2">
+          <div className="bg-slate-50 rounded p-2">
             <div className="text-[10px] text-slate-500">실 매출</div>
             <div className="text-base font-bold">{fmt(totalSale)}원</div>
             {dSale.pct !== null && (
               <div className={`text-[10px] ${dSale.color} font-semibold`} title="전월 동기 대비">{dSale.arrow} {Math.abs(dSale.pct).toFixed(1)}% MoM</div>
             )}
           </div>
-          <div className="bg-white rounded p-2">
+          <div className="bg-slate-50 rounded p-2">
             <div className="text-[10px] text-slate-500">영업이익 (광고비 전)</div>
             <div className="text-sm font-bold text-emerald-700">{fmt(totalOpProfit)}원</div>
             <div className="text-[10px] text-slate-500">마진 {opMargin}%</div>
@@ -212,14 +212,14 @@ export default function ChannelPL({ totals, prevTotals, range, channels, events,
               <div className={`text-[10px] ${dOp.color} font-semibold`}>{dOp.arrow} {Math.abs(dOp.pct).toFixed(1)}% MoM</div>
             )}
           </div>
-          <div className="bg-white rounded p-2">
+          <div className="bg-slate-50 rounded p-2">
             <div className="text-[10px] text-slate-500">광고비</div>
             <div className="text-sm font-bold text-rose-600">{fmt(totalAdCost)}원</div>
             {dAd.pct !== null && (
               <div className={`text-[10px] ${dAd.color} font-semibold`}>{dAd.arrow} {Math.abs(dAd.pct).toFixed(1)}% MoM</div>
             )}
           </div>
-          <div className="bg-white rounded p-2">
+          <div className="bg-slate-50 rounded p-2">
             <div className="text-[10px] text-slate-500">순이익 (광고비 후)</div>
             <div className={`text-sm font-bold ${totalNetProfit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
               {fmt(totalNetProfit)}원
@@ -237,7 +237,7 @@ export default function ChannelPL({ totals, prevTotals, range, channels, events,
           const costPct = 100 - opPct;
           const adPctOfSale = (totalAdCost / totalSale) * 100;
           return (
-            <div className="mt-3 space-y-2 bg-white rounded-lg p-3 border border-amber-200">
+            <div className="mt-3 space-y-2 bg-slate-50 rounded-lg p-3 border border-slate-200">
               {/* 매출 (100% 기준 라벨) */}
               <div>
                 <div className="flex items-baseline justify-between text-[11px] mb-1">
@@ -290,13 +290,13 @@ export default function ChannelPL({ totals, prevTotals, range, channels, events,
               const pipelineOnly = ec.running === 0 && ec.closed === 0; // 신청·선정 단계만
               const pipeline = ec.applied + ec.selected;
               return (
-                <div key={ec.channel_key} className="bg-amber-50 border-2 border-amber-400 rounded p-3">
+                <div key={ec.channel_key} className="bg-white border border-slate-200 border-l-4 border-l-amber-500 rounded p-3">
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-1.5">
                       <span className={`font-mono font-extrabold text-xs ${th.bold}`}>{th.abbr}</span>
-                      <span className="text-sm font-semibold">{th.label}</span>
+                      <span className="text-sm font-semibold text-slate-800">{th.label}</span>
                     </div>
-                    <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">
+                    <span className="text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-bold">
                       ⭐ {ec.count}건
                     </span>
                   </div>
@@ -390,16 +390,16 @@ export default function ChannelPL({ totals, prevTotals, range, channels, events,
                 const margin = r.sale > 0 ? (r.op / r.sale) * 100 : 0;
                 const share = grandSale > 0 ? (r.sale / grandSale) * 100 : 0;
                 return (
-                  <div key={r.key} className="bg-indigo-50 border border-indigo-200 rounded p-2">
+                  <div key={r.key} className="bg-slate-50 border border-slate-200 rounded p-2">
                     <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-xs font-semibold text-indigo-900 truncate" title={r.key}>{r.key}</span>
-                      <span className="text-[10px] bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded font-bold">
+                      <span className="text-xs font-semibold text-slate-700 truncate" title={r.key}>{r.key}</span>
+                      <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-bold">
                         {r.count}건
                       </span>
                     </div>
                     {r.sale > 0 ? (
                       <div className="text-[11px] space-y-0.5">
-                        <div>매출 <b className="text-indigo-900">{fmt(r.sale)}</b>원 <span className="text-[10px] text-slate-500">({share.toFixed(1)}%)</span></div>
+                        <div>매출 <b className="text-slate-800">{fmt(r.sale)}</b>원 <span className="text-[10px] text-slate-500">({share.toFixed(1)}%)</span></div>
                         <div>영업이익 <b className="text-emerald-700">{fmt(r.op)}</b>원 ({margin.toFixed(1)}%)</div>
                       </div>
                     ) : (

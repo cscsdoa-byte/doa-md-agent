@@ -75,18 +75,15 @@ export default function SystemHealthCard({ token, sessions, events }: Props) {
   if (items.length === 0) return null;
 
   const danger = items.some((i) => i.severity === "danger");
+  const accent = danger ? "border-l-rose-500" : "border-l-amber-500";
   return (
-    <div className={`mb-4 rounded p-3 border-2 ${
-      danger
-        ? "bg-rose-50 border-rose-400"
-        : "bg-amber-50 border-amber-300"
-    }`}>
-      <div className={`text-sm font-bold mb-1.5 ${danger ? "text-rose-900" : "text-amber-900"}`}>
-        ⚠️ 시스템 점검 ({items.length}건)
+    <div className={`mb-4 rounded p-3 bg-white border border-slate-200 border-l-4 ${accent}`}>
+      <div className="text-sm font-bold mb-1.5 text-slate-800">
+        ⚠️ 시스템 점검 <span className="text-slate-500 font-normal">({items.length}건)</span>
       </div>
       <ul className="space-y-1 text-xs">
         {items.map((it, i) => {
-          const colorCls = it.severity === "danger" ? "text-rose-800" : "text-amber-800";
+          const colorCls = it.severity === "danger" ? "text-rose-700" : "text-amber-700";
           const content = (
             <span className={colorCls}>
               <span className="mr-1">{it.icon}</span>
