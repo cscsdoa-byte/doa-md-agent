@@ -133,6 +133,7 @@ export default async function Home() {
           </div>
         </header>
 
+        {/* 상단: 액션·점검 카드 (작은 한 줄짜리) */}
         <SystemHealthCard token={tokenStatus} sessions={sessionIssues} events={payload.events} />
 
         <TodaysActionsCard events={payload.events} />
@@ -141,6 +142,17 @@ export default async function Home() {
 
         <ConflictBanner events={payload.events} />
 
+        <CsCriticalCard critical={payload.cs_critical ?? []} repeat={payload.cs_repeat ?? []} />
+
+        {/* 핵심: 캘린더 */}
+        <Calendar
+          events={payload.events}
+          channels={channels}
+          contacts={payload.contacts ?? []}
+          templates={payload.templates ?? []}
+        />
+
+        {/* 하단: PL·통계 영역 */}
         <ChannelPL
           totals={channelPL.totals}
           prevTotals={channelPL.prev_totals}
@@ -152,16 +164,7 @@ export default async function Home() {
 
         <MdPL events={payload.events} />
 
-        <CsCriticalCard critical={payload.cs_critical ?? []} repeat={payload.cs_repeat ?? []} />
-
         <CsWidget cs={payload.cs_daily ?? []} hourly={payload.cs_hourly} top={payload.cs_top} />
-
-        <Calendar
-          events={payload.events}
-          channels={channels}
-          contacts={payload.contacts ?? []}
-          templates={payload.templates ?? []}
-        />
 
         <footer className="mt-8 text-xs text-slate-400 text-center space-y-1">
           <div>
