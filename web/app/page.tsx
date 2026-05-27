@@ -5,8 +5,10 @@ import ConflictBanner from "@/components/ConflictBanner";
 import CsWidget from "@/components/CsWidget";
 import MdPL from "@/components/MdPL";
 import SeasonBanner from "@/components/SeasonBanner";
+import SystemHealthCard from "@/components/SystemHealthCard";
 import { loadChannels } from "@/lib/channels";
 import { loadEvents } from "@/lib/data";
+import { checkSessions, checkSettleToken } from "@/lib/health";
 import { fetchChannelPL } from "@/lib/settle";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +19,8 @@ export default async function Home() {
     loadChannels(),
     fetchChannelPL().catch(() => ({ totals: null, prev_totals: null, range: null, channels: [] })),
   ]);
+  const tokenStatus = checkSettleToken();
+  const sessionIssues = checkSessions();
   const generatedAt = payload.generated_at?.slice(0, 16).replace("T", " ") ?? "";
   const settleBase = process.env.NEXT_PUBLIC_SETTLE_BASE_URL || "http://3.37.214.243";
   const opsCount = payload.events.filter(
@@ -126,6 +130,8 @@ export default async function Home() {
             </a>
           </div>
         </header>
+
+        <SystemHealthCard token={tokenStatus} sessions={sessionIssues} events={payload.events} />
 
         <SeasonBanner events={payload.events} />
 
