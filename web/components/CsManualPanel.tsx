@@ -24,7 +24,7 @@ export default function CsManualPanel({ items }: Props) {
   const [search, setSearch] = useState("");
   const [customerMsg, setCustomerMsg] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
-  const [aiResult, setAiResult] = useState<{ reply?: string; error?: string } | null>(null);
+  const [aiResult, setAiResult] = useState<{ reply?: string; error?: string; context_count?: number; intent?: string | null } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   // 메시지 또는 검색어 기반 필터링
@@ -69,7 +69,7 @@ export default function CsManualPanel({ items }: Props) {
       if (!r.ok) {
         setAiResult({ error: j.error || "AI 호출 실패" });
       } else {
-        setAiResult({ reply: j.reply });
+        setAiResult({ reply: j.reply, context_count: j.context_count, intent: j.intent });
       }
     } catch (e) {
       setAiResult({ error: (e as Error).message });
@@ -119,19 +119,24 @@ export default function CsManualPanel({ items }: Props) {
           </div>
         )}
         {aiResult?.reply && (
-          <div className="mt-2 bg-indigo-50 border border-indigo-200 rounded p-3">
+          <div className="mt-2 bg-slate-50 border border-slate-200 border-l-4 border-l-indigo-500 rounded p-3">
             <div className="flex items-baseline justify-between mb-1">
-              <span className="text-[11px] font-bold text-indigo-800">🤖 Claude AI 추천 답변</span>
+              <span className="text-[11px] font-bold text-slate-800">🤖 Claude AI 추천 답변</span>
               <button
                 onClick={() => copyToClipboard(aiResult.reply!, "ai")}
-                className="text-[10px] px-2 py-0.5 bg-white border border-indigo-300 rounded hover:bg-indigo-100"
+                className="text-[10px] px-2 py-0.5 bg-white border border-slate-300 rounded hover:bg-slate-100"
               >
                 {copied === "ai" ? "✓ 복사됨" : "📋 복사"}
               </button>
             </div>
             <pre className="text-xs whitespace-pre-wrap text-slate-800">{aiResult.reply}</pre>
-            <div className="mt-2 text-[10px] text-indigo-700">
-              ※ AI 답변은 참고용 — 정확한 정보(주문번호/금액 등)는 직접 확인 후 발송
+            <div className="mt-2 text-[10px] text-slate-600">
+              {aiResult.context_count && aiResult.context_count > 0 ? (
+                <>📚 <b>실제 운영 답변 {aiResult.context_count}건</b> 컨텍스트로 학습됨{aiResult.intent && ` (${aiResult.intent})`} · 회사 톤 반영</>
+              ) : (
+                <>⚠️ 과거 비슷한 답변 없음 — 매뉴얼 기준으로 생성됨 (CS 데이터 업로드하면 더 정확)</>
+              )}
+              <br />※ 정확한 정보(주문번호/금액 등)는 직접 확인 후 발송
             </div>
           </div>
         )}

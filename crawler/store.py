@@ -723,6 +723,110 @@ def cs_critical_issues(
     return out
 
 
+def cs_find_similar_replies(
+    conn: sqlite3.Connection,
+    customer_message: str,
+    limit: int = 5,
+    days: int = 90,
+) -> list[dict]:
+    """과거 비슷한 인입 메시지에 대한 실제 발신 답변 N개.
+
+    매칭 로직:
+    1. 새 인입의 핵심 키워드(매뉴얼 intent_keywords) 추출
+    2. 같은 키워드 포함 과거 수신 메시지 → receiver + datetime
+    3. 같은 receiver 의 직후 발신 (24시간 내, 시스템 메시지 제외)
+    4. 답변별 빈도 + 가장 흔한 form 1개씩 N개
+
+    Returns: [{intent, customer_msg, agent_reply, count}, ...]
+    """
+    from datetime import date, timedelta
+    import re as _re
+    from collections import Counter
+
+    msg = customer_message.lower()
+    # intent_keywords 매핑 (web/lib/cs-manual.ts 와 동기화)
+    intent_groups = {
+        "입금/송금": ["입금", "송금", "결제", "보냈"],
+        "배송조회": ["배송", "언제", "어디", "도착", "출고", "송장"],
+        "상담연결": ["상담원", "상담사", "전화", "연결"],
+        "환불": ["환불", "돈 돌려"],
+        "취소": ["취소"],
+        "교환": ["교환", "반품", "바꿔", "다시 보내"],
+        "불량": ["불량", "곰팡이", "변질", "상했", "이상", "썩었"],
+        "지연": ["안 왔", "안왔", "안 도착", "늦어", "지연"],
+        "주문문의": ["주문", "확인"],
+    }
+    matched_intent = None
+    for intent, kws in intent_groups.items():
+        if any(kw in msg for kw in kws):
+            matched_intent = (intent, kws)
+            break
+    if not matched_intent:
+        return []
+    intent, kws = matched_intent
+
+    # 키워드 OR 조건으로 과거 수신 메시지 검색
+    start = (date.today() - timedelta(days=days)).isoformat()
+    like_clauses = " OR ".join(["message LIKE ?"] * len(kws))
+    like_params = [f"%{kw}%" for kw in kws]
+    received = conn.execute(
+        f"""SELECT id, date, time, receiver, message
+            FROM cs_messages
+            WHERE status = '수신'
+              AND date >= ?
+              AND ({like_clauses})
+            ORDER BY date DESC, time DESC
+            LIMIT 200""",
+        (start, *like_params),
+    ).fetchall()
+
+    # 각 수신 메시지의 직후 발신 답변 찾기 (같은 receiver, 24h 내, 시스템 메시지 제외)
+    reply_counter: Counter[str] = Counter()
+    reply_pair_sample: dict[str, dict] = {}
+    for r in received:
+        # 직후 발신 (같은 receiver, 24시간 내, status='발신')
+        sent = conn.execute(
+            """SELECT message FROM cs_messages
+               WHERE status = '발신'
+                 AND receiver = ?
+                 AND date >= ?
+                 AND (date > ? OR time > ?)
+               ORDER BY date ASC, time ASC
+               LIMIT 1""",
+            (r["receiver"], r["date"], r["date"], r["time"]),
+        ).fetchone()
+        if not sent:
+            continue
+        reply = (sent["message"] or "").strip()
+        if not reply or _is_cs_system_msg(reply):
+            continue
+        # 시스템 자동 답변 제외
+        if any(p in reply for p in ["상담 가능 시간이 아닙니다", "휴대폰번호", "[인증번호", "본인 인증이 완료", "상담 모드", "본인확인 인증번호", "상담원이 연결"]):
+            continue
+        # normalize for grouping
+        norm = _re.sub(r"\s+", " ", reply)
+        norm = _re.sub(r"\d{4,}", "N", norm)
+        if len(norm) < 10:
+            continue
+        reply_counter[norm] += 1
+        if norm not in reply_pair_sample:
+            reply_pair_sample[norm] = {
+                "customer_msg": _mask_pii((r["message"] or "")[:120]),
+                "agent_reply": _mask_pii(reply[:280]),
+            }
+
+    out = []
+    for norm, count in reply_counter.most_common(limit):
+        pair = reply_pair_sample[norm]
+        out.append({
+            "intent": intent,
+            "customer_msg": pair["customer_msg"],
+            "agent_reply": pair["agent_reply"],
+            "count": count,
+        })
+    return out
+
+
 def cs_repeat_callers(
     conn: sqlite3.Connection, days: int = 7, min_messages: int = 5
 ) -> list[dict]:

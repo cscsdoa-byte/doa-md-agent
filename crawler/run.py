@@ -400,6 +400,16 @@ def cmd_sales(id_prefix: str, override_channels: list[str] | None, no_filter: bo
     return 0
 
 
+def cmd_cs_similar_replies(customer_message: str, limit: int = 5) -> int:
+    """과거 비슷한 인입에 대한 실제 발신 답변 N개 (JSON 출력)."""
+    import json as _j
+    from .store import connect, cs_find_similar_replies
+    with connect() as conn:
+        out = cs_find_similar_replies(conn, customer_message, limit=limit)
+    print(_j.dumps(out, ensure_ascii=False))
+    return 0
+
+
 def cmd_import_cs(file_path: str, clear_all: bool = False) -> int:
     """이지데스크 .xls (HTML 포맷) → cs_messages 테이블 import.
 
@@ -1337,6 +1347,10 @@ def main() -> None:
 
     sp.add_parser("cs-clear", help="cs_messages 전체 삭제 (재업로드 전 초기화)")
 
+    pcsr = sp.add_parser("cs-similar-replies", help="과거 비슷한 인입에 대한 실제 발신 답변 N개 (JSON 출력)")
+    pcsr.add_argument("customer_message", help="새 인입 메시지")
+    pcsr.add_argument("--limit", type=int, default=5)
+
     psim = sp.add_parser("save-simulation", help="마진 시뮬레이터 입력값을 행사 simulation_json 에 스냅샷 저장")
     psim.add_argument("id_prefix")
     psim.add_argument("--price", type=int, required=True, help="정상가 (원)")
@@ -1400,6 +1414,8 @@ def main() -> None:
         sys.exit(cmd_import_cs(args.file_path, args.clear))
     elif args.cmd == "cs-clear":
         sys.exit(cmd_cs_clear())
+    elif args.cmd == "cs-similar-replies":
+        sys.exit(cmd_cs_similar_replies(args.customer_message, args.limit))
     elif args.cmd == "save-simulation":
         sys.exit(cmd_save_simulation(
             args.id_prefix, args.price, args.cost, args.ship,
