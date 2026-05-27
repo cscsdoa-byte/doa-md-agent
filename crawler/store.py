@@ -574,13 +574,21 @@ CS_SYSTEM_PATTERNS = [
     "조선팔도떡집입니다",
 ]
 
-# 단순 인사/응답 — 자동응답 가치 없음 (정확 일치만)
-CS_TRIVIAL_RESPONSES = {
-    "안녕하세요", "감사합니다", "감사해요", "감사", "네",
-    "네 감사합니다", "네 알겠습니다", "알겠습니다", "넵", "네네",
-    "저기요", "여보세요", "ㅎㅎ", "ㅋㅋ", "ㅎ", "ㅋ", "ㅇㅇ",
-    "확인했습니다", "확인했어요",
-}
+# 단순 인사/응답 — 자동응답 가치 없음. normalize 후 매칭 (공백·구두점·이모티콘 제거)
+import re as _trivial_re
+
+_TRIVIAL_LIST_RAW = [
+    "안녕하세요", "감사합니다", "감사해요", "감사",
+    "네", "네감사합니다", "네알겠습니다", "알겠습니다",
+    "넵", "네네", "넹", "ㅇㅇ", "ㅇㅋ", "오케이",
+    "수고하세요", "네수고하세요", "수고",
+    "좋은하루보내세요", "좋은하루되세요",
+    "저기요", "여보세요", "여보세요여보세요",
+    "ㅎㅎ", "ㅋㅋ", "ㅋㅋㅋ", "ㅎㅎㅎ", "ㅎ", "ㅋ",
+    "확인했습니다", "확인했어요", "확인",
+    "알겠어요", "알겠음", "넵넵",
+]
+_TRIVIAL_RE = _trivial_re.compile(r"[\s\.\,\!\?\~\^\-\=\:\/\(\)]+")
 
 
 def _is_cs_system_msg(msg: str) -> bool:
@@ -594,9 +602,8 @@ def _is_cs_system_msg(msg: str) -> bool:
 
 
 def _is_trivial(msg: str) -> bool:
-    import re as _re
-    s = _re.sub(r"[\s\.\,\!\?\~]+", "", msg.strip())
-    return s in CS_TRIVIAL_RESPONSES
+    s = _TRIVIAL_RE.sub("", msg.strip())
+    return s in _TRIVIAL_LIST_RAW
 
 
 def _mask_pii(s: str) -> str:
