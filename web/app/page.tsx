@@ -2,6 +2,7 @@ import Link from "next/link";
 import Calendar from "@/components/Calendar";
 import ChannelPL from "@/components/ChannelPL";
 import ConflictBanner from "@/components/ConflictBanner";
+import CsCriticalCard from "@/components/CsCriticalCard";
 import CsWidget from "@/components/CsWidget";
 import MdPL from "@/components/MdPL";
 import SeasonBanner from "@/components/SeasonBanner";
@@ -150,6 +151,8 @@ export default async function Home() {
         />
 
         <MdPL events={payload.events} />
+
+        <CsCriticalCard critical={payload.cs_critical ?? []} repeat={payload.cs_repeat ?? []} />
 
         <CsWidget cs={payload.cs_daily ?? []} hourly={payload.cs_hourly} top={payload.cs_top} canned={payload.cs_canned} />
 

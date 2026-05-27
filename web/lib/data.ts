@@ -145,6 +145,22 @@ export interface EventsPayload {
   cs_hourly?: CsHourly[];
   cs_top?: CsTopQuestion[];
   cs_canned?: CsTopQuestion[];
+  cs_critical?: CsCriticalGroup[];
+  cs_repeat?: CsRepeatCaller[];
+}
+
+export interface CsCriticalGroup {
+  category: string;
+  count: number;
+  samples: { date: string; time: string; channel: string; sender: string; message: string }[];
+}
+
+export interface CsRepeatCaller {
+  sender_short: string;
+  channel: string;
+  count: number;
+  first: string;
+  last: string;
 }
 
 export interface CsDaily {

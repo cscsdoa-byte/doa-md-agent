@@ -661,6 +661,99 @@ def cs_top_questions(
     return out
 
 
+# 큰 이슈 검출 — 환불/취소/불량/미응답 관련 키워드
+# (인입 메시지에서 매칭 — 정확도 100% 아니지만 우선 검토 대상 1차 추출)
+CS_CRITICAL_KEYWORDS = {
+    "환불": ["환불", "돈 돌려", "환불해", "환불 부탁", "환불요청"],
+    "취소": ["취소", "주문 취소", "취소해", "취소 부탁"],
+    "교환·반품": ["교환", "반품", "바꿔", "다시 보내"],
+    "불량·상품이상": ["불량", "곰팡이", "변질", "상했", "이상해", "이상함", "이상함요", "찢어", "터졌", "터짐", "깨졌", "부서졌", "썩었"],
+    "배송지연": ["안 왔", "안와", "안왔", "안 도착", "도착 안", "늦어", "늦게", "지연", "왜 안", "왜 아직"],
+    "강한불만": ["진짜", "최악", "실망", "별로", "짜증", "화가", "신고", "소비자보호원", "법적"],
+    "재발송": ["재발송", "다시 보내", "또 보내"],
+}
+
+
+def cs_critical_issues(
+    conn: sqlite3.Connection, days: int = 7, limit_per: int = 5
+) -> list[dict]:
+    """인입 메시지 중 위험 신호 (환불/취소/불량/지연/불만/재발송).
+
+    카테고리별로 최근 N일 메시지 + 카운트 + 샘플 N개.
+    """
+    from datetime import date, timedelta
+    start = (date.today() - timedelta(days=days - 1)).isoformat()
+    rows = conn.execute(
+        """SELECT date, time, channel, sender, message
+           FROM cs_messages
+           WHERE status = '수신'
+             AND date >= ?
+             AND message IS NOT NULL
+           ORDER BY date DESC, time DESC""",
+        (start,),
+    ).fetchall()
+
+    by_cat: dict[str, list[dict]] = {k: [] for k in CS_CRITICAL_KEYWORDS}
+    for r in rows:
+        msg = (r["message"] or "").strip()
+        if not msg or _is_cs_system_msg(msg):
+            continue
+        for cat, kws in CS_CRITICAL_KEYWORDS.items():
+            if any(kw in msg for kw in kws):
+                by_cat[cat].append({
+                    "date": r["date"],
+                    "time": r["time"],
+                    "channel": r["channel"],
+                    "sender": (r["sender"] or "")[:8],  # 짧게
+                    "message": _mask_pii(msg[:120]),
+                })
+                break  # 한 카테고리만
+
+    out = []
+    for cat, items in by_cat.items():
+        if not items:
+            continue
+        out.append({
+            "category": cat,
+            "count": len(items),
+            "samples": items[:limit_per],
+        })
+    # 건수 많은 순
+    out.sort(key=lambda x: x["count"], reverse=True)
+    return out
+
+
+def cs_repeat_callers(
+    conn: sqlite3.Connection, days: int = 7, min_messages: int = 5
+) -> list[dict]:
+    """같은 sender가 N일 안에 min_messages 이상 인입 — 반복 컨택 (불만 가능성)."""
+    from datetime import date, timedelta
+    start = (date.today() - timedelta(days=days - 1)).isoformat()
+    rows = conn.execute(
+        """SELECT sender, channel, COUNT(*) as n, MIN(date) as first_date, MAX(date) as last_date
+           FROM cs_messages
+           WHERE status = '수신'
+             AND date >= ?
+             AND sender IS NOT NULL AND sender != ''
+             AND receiver IS NOT NULL AND receiver != ''
+           GROUP BY receiver, channel
+           HAVING n >= ?
+           ORDER BY n DESC
+           LIMIT 20""",
+        (start, min_messages),
+    ).fetchall()
+    return [
+        {
+            "sender_short": ((r["sender"] or "")[:8]),
+            "channel": r["channel"],
+            "count": r["n"],
+            "first": r["first_date"],
+            "last": r["last_date"],
+        }
+        for r in rows
+    ]
+
+
 def cs_top_canned(
     conn: sqlite3.Connection, max_len: int = 200, limit: int = 10, days: int = 30
 ) -> list[dict]:

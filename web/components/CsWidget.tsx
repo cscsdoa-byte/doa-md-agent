@@ -1,6 +1,25 @@
 import Link from "next/link";
 import type { CsDaily, CsHourly, CsTopQuestion } from "@/lib/data";
 
+// 인입 TOP 질문 → 챗봇 자동답변 시나리오 가이드 매핑.
+// 키워드 포함시 추천 답변 안 (사용자가 카카오 챗봇/이지데스크 캔드답변에 붙여넣기 베이스).
+const AUTO_REPLY_GUIDE: { match: RegExp; tip: string }[] = [
+  { match: /입금|송금/, tip: "💡 자동: 「입금 확인 중입니다. 주문번호 알려주시면 즉시 확인해드릴게요」 + 주문번호 입력 받기" },
+  { match: /배송조회|배송|언제 와|어디|도착/, tip: "💡 자동: 「주문번호 알려주시면 배송 상태 안내드릴게요」 + 배송 추적 링크" },
+  { match: /상담원|상담사|상담연결|상담원연결/, tip: "💡 자동: 인증 플로우 → 상담원 연결 (이미 운영중)" },
+  { match: /전화번호|폰번호|번호/, tip: "💡 자동: 「휴대폰 번호를 -없이 숫자만 입력해주세요」 + 인증번호 발송" },
+  { match: /환불|취소|반품|교환/, tip: "🚨 상담사 우선 — 자동 대응 X, 큰 이슈 카드로 분류됨" },
+  { match: /주문|문의/, tip: "💡 자동: 「주문번호 또는 전화번호 알려주시면 확인해드릴게요」" },
+  { match: /확인|부탁/, tip: "💡 자동: 「어떤 부분 확인이 필요하신가요? 주문번호 알려주시면 빠르게 처리됩니다」" },
+];
+
+function autoReplyTip(sample: string): string | null {
+  for (const { match, tip } of AUTO_REPLY_GUIDE) {
+    if (match.test(sample)) return tip;
+  }
+  return null;
+}
+
 interface Props {
   cs: CsDaily[];
   hourly?: CsHourly[];
@@ -147,17 +166,25 @@ export default function CsWidget({ cs, hourly, top, canned }: Props) {
           <div className="text-[10px] text-slate-500 mb-1">
             🤖 고객 인입 질문 TOP — <b>챗봇 자동응답 후보</b> (최근 30일, 20자 미만, 시스템 메시지 제외)
           </div>
-          <ol className="space-y-0.5">
-            {top.slice(0, 5).map((q, i) => (
-              <li key={i} className="text-[11px] flex items-baseline gap-2 bg-emerald-50 px-2 py-1 rounded">
-                <span className="font-mono text-slate-400">{i + 1}.</span>
-                <span className="flex-1 truncate" title={q.sample}>{q.sample}</span>
-                <span className="text-[10px] text-emerald-700 font-bold whitespace-nowrap">{q.count}회</span>
-                {q.variants > 1 && (
-                  <span className="text-[10px] text-slate-400 whitespace-nowrap">+{q.variants - 1}변형</span>
-                )}
-              </li>
-            ))}
+          <ol className="space-y-1">
+            {top.slice(0, 5).map((q, i) => {
+              const tip = autoReplyTip(q.sample);
+              return (
+                <li key={i} className="bg-emerald-50 px-2 py-1 rounded">
+                  <div className="text-[11px] flex items-baseline gap-2">
+                    <span className="font-mono text-slate-400">{i + 1}.</span>
+                    <span className="flex-1 truncate" title={q.sample}>{q.sample}</span>
+                    <span className="text-[10px] text-emerald-700 font-bold whitespace-nowrap">{q.count}회</span>
+                    {q.variants > 1 && (
+                      <span className="text-[10px] text-slate-400 whitespace-nowrap">+{q.variants - 1}변형</span>
+                    )}
+                  </div>
+                  {tip && (
+                    <div className="text-[10px] text-emerald-800 mt-0.5 ml-4">{tip}</div>
+                  )}
+                </li>
+              );
+            })}
           </ol>
         </div>
       )}

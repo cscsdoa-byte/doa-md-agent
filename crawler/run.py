@@ -604,12 +604,17 @@ def cmd_dump_json(out_path: str | None) -> int:
         contacts = [dict(r) for r in list_contacts(conn)]
         templates = [dict(r) for r in list_templates(conn)]
         channels_master = [dict(r) for r in list_channels_master(conn)]
-        # CS 통계 — 일별/시간대별/짧은 질문 top + 반복 발신 캔드답변
-        from .store import cs_daily_stats, cs_hourly_stats, cs_top_questions, cs_top_canned
+        # CS 통계 — 일별/시간대별/짧은 질문 top + 캔드답변 + 큰 이슈
+        from .store import (
+            cs_daily_stats, cs_hourly_stats, cs_top_questions, cs_top_canned,
+            cs_critical_issues, cs_repeat_callers,
+        )
         cs_daily = cs_daily_stats(conn, days=14)
         cs_hourly = cs_hourly_stats(conn, days=7)
         cs_top = cs_top_questions(conn, max_len=20, limit=10, days=30)
         cs_canned = cs_top_canned(conn, max_len=200, limit=10, days=30)
+        cs_critical = cs_critical_issues(conn, days=7, limit_per=5)
+        cs_repeat = cs_repeat_callers(conn, days=7, min_messages=5)
     payload = {
         "generated_at": datetime.now().isoformat(),
         "total": s["total"],
@@ -623,6 +628,8 @@ def cmd_dump_json(out_path: str | None) -> int:
         "cs_hourly": cs_hourly,
         "cs_top": cs_top,
         "cs_canned": cs_canned,
+        "cs_critical": cs_critical,
+        "cs_repeat": cs_repeat,
     }
     target.write_text(_json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"✓ dump: {target}  ({len(items)}건)")
