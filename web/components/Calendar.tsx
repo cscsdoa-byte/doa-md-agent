@@ -1521,6 +1521,17 @@ export default function Calendar({
               />
             </div>
 
+            {/* 📸 결과 리포트 버튼 */}
+            <div className="pt-3 border-t">
+              <button
+                onClick={() => window.open(apiUrl(`/report/${selected.dedup_id}`), "_blank")}
+                className="w-full px-3 py-2 text-sm bg-amber-600 text-white rounded hover:bg-amber-700"
+                title="사장님 보고/카톡용 PNG 1장 리포트"
+              >
+                📸 결과 리포트 (PNG)
+              </button>
+            </div>
+
             {/* 행사 본문 수정 + 삭제 */}
             <div className="pt-3 border-t space-y-2">
               {!showEdit ? (

@@ -522,12 +522,21 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
               </a>
             </div>
 
-            <div className="p-3 border-t bg-slate-50 flex justify-end gap-2">
+            <div className="p-3 border-t bg-slate-50 flex justify-end gap-2 flex-wrap">
               <button
                 className="px-3 py-1.5 text-sm border rounded hover:bg-white"
                 onClick={() => setSelectedDetail(null)}
               >
                 닫기
+              </button>
+              <button
+                className="px-3 py-1.5 text-sm bg-amber-600 text-white rounded hover:bg-amber-700"
+                onClick={() => {
+                  window.open(apiUrl(`/report/${selectedDetail.dedup_id}`), "_blank");
+                }}
+                title="사장님 보고/카톡용 PNG 리포트"
+              >
+                📸 결과 리포트
               </button>
               <button
                 className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700"
