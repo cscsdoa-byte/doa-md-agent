@@ -486,6 +486,40 @@ def list_contacts(
     ).fetchall()
 
 
+def infer_md_owners(conn: sqlite3.Connection) -> tuple[int, int, list[str]]:
+    """md_owner_name 비어있는 행사에 자동 매핑.
+
+    채널별 contacts 가 1명일 때만 자동 적용 (여러 명이면 모호 → 미지정 유지).
+    Returns: (patched_count, skipped_ambiguous, skipped_channel_keys)
+    """
+    rows = conn.execute(
+        """SELECT channel_key, COUNT(*) as n, MIN(name) as first_name
+           FROM md_contacts
+           GROUP BY channel_key"""
+    ).fetchall()
+    unique_map: dict[str, str] = {}
+    ambiguous: list[str] = []
+    for r in rows:
+        if r["n"] == 1:
+            unique_map[r["channel_key"]] = r["first_name"]
+        else:
+            ambiguous.append(r["channel_key"])
+    if not unique_map:
+        return 0, len(ambiguous), ambiguous
+
+    patched = 0
+    for ch_key, name in unique_map.items():
+        cur = conn.execute(
+            """UPDATE events
+               SET md_owner_name = ?
+               WHERE channel_key = ?
+                 AND (md_owner_name IS NULL OR TRIM(md_owner_name) = '')""",
+            (name, ch_key),
+        )
+        patched += cur.rowcount or 0
+    return patched, len(ambiguous), ambiguous
+
+
 def add_contact(
     conn: sqlite3.Connection,
     channel_key: str,

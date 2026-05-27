@@ -221,6 +221,9 @@ export interface ChannelAgg {
   /** 영업이익 - 안분광고비 추정 순이익 */
   net_profit_est: number;
   net_margin_est: number;
+  /** 작년 동기(같은 월) 매출 — YoY 비교용 (없으면 null) */
+  sale_yoy: number | null;
+  op_yoy: number | null;
 }
 
 /** 조선팔도떡집의 이번 달 채널별 PL — summary 1회 호출 후 breakdown 집계.
@@ -237,8 +240,24 @@ export async function fetchChannelPL(): Promise<{
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const today = `${y}-${m}-${String(now.getDate()).padStart(2, "0")}`;
   const start = `${y}-${m}-01`;
-  const data = await fetchSummary({ start, end: today, brand: "조선팔도떡집" });
+  // 작년 동기(같은 월·같은 날짜까지) — YoY 비교
+  const lyStart = `${y - 1}-${m}-01`;
+  const lyEnd = `${y - 1}-${m}-${String(now.getDate()).padStart(2, "0")}`;
+  const [data, lyData] = await Promise.all([
+    fetchSummary({ start, end: today, brand: "조선팔도떡집" }),
+    fetchSummary({ start: lyStart, end: lyEnd, brand: "조선팔도떡집" }).catch(() => null),
+  ]);
   if (!data) return { totals: null, prev_totals: null, range: null, channels: [] };
+  // 작년 동기 채널별 집계
+  const lyByCh: Record<string, { sale: number; op: number }> = {};
+  if (lyData?.breakdown) {
+    for (const row of lyData.breakdown) {
+      const ch = row.channel || "?";
+      if (!lyByCh[ch]) lyByCh[ch] = { sale: 0, op: 0 };
+      lyByCh[ch].sale += row.sale ?? 0;
+      lyByCh[ch].op += row.operating_profit ?? 0;
+    }
+  }
   const by: Record<string, ChannelAgg> = {};
   for (const row of data.breakdown ?? []) {
     const ch = row.channel || "?";
@@ -246,6 +265,7 @@ export async function fetchChannelPL(): Promise<{
       channel: ch, sale: 0, cost: 0, fee: 0, operating_profit: 0,
       orders: 0, qty: 0, margin_rate: 0,
       ad_cost_est: 0, net_profit_est: 0, net_margin_est: 0,
+      sale_yoy: null, op_yoy: null,
     };
     by[ch].sale += row.sale ?? 0;
     by[ch].cost += row.cost ?? 0;
@@ -263,12 +283,15 @@ export async function fetchChannelPL(): Promise<{
     .map((c) => {
       const ad_cost_est = grandSale > 0 ? (c.sale / grandSale) * totalAd : 0;
       const net_profit_est = c.operating_profit - ad_cost_est;
+      const ly = lyByCh[c.channel];
       return {
         ...c,
         margin_rate: c.sale ? (c.operating_profit / c.sale) * 100 : 0,
         ad_cost_est,
         net_profit_est,
         net_margin_est: c.sale ? (net_profit_est / c.sale) * 100 : 0,
+        sale_yoy: ly ? ly.sale : null,
+        op_yoy: ly ? ly.op : null,
       };
     })
     .sort((a, b) => b.sale - a.sale);

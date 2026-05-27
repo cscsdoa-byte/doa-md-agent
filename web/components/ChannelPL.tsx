@@ -355,6 +355,14 @@ export default function ChannelPL({ totals, prevTotals, range, channels, events 
                   <div className="text-[11px] text-slate-600">
                     매출 {fmt(c.sale)}원
                   </div>
+                  {(() => {
+                    const dYoY = c.sale_yoy !== null ? delta(c.sale, c.sale_yoy) : null;
+                    return dYoY && dYoY.pct !== null ? (
+                      <div className={`text-[10px] ${dYoY.color} font-semibold`} title={`작년 동기 매출 ${fmt(c.sale_yoy ?? 0)}원 대비`}>
+                        {dYoY.arrow} {Math.abs(dYoY.pct).toFixed(1)}% YoY
+                      </div>
+                    ) : null;
+                  })()}
                   {expectedRate > 0 ? (
                     <>
                       <div className="text-[10px] text-slate-500" title={isToss ? "결제 2.4% + 정산 8% 모두 부과 가정 (보수)" : `시뮬레이터 기준 ${(expectedRate*100).toFixed(1)}% 부과 가정`}>

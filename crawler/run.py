@@ -400,6 +400,17 @@ def cmd_sales(id_prefix: str, override_channels: list[str] | None, no_filter: bo
     return 0
 
 
+def cmd_infer_md_owner() -> int:
+    """md_owner_name 비어있는 행사에 contacts 채널 1:1 매핑 기준 자동 매핑."""
+    from .store import connect, infer_md_owners
+    with connect() as conn:
+        patched, ambiguous_n, ambiguous_keys = infer_md_owners(conn)
+    print(f"[infer-md-owner] 자동 매핑: {patched}건")
+    if ambiguous_n:
+        print(f"  모호(채널에 MD 여러명, 미지정 유지): {ambiguous_n}개 채널 — {ambiguous_keys}")
+    return 0
+
+
 def cmd_save_simulation(
     id_prefix: str,
     price: int,
@@ -1264,6 +1275,8 @@ def main() -> None:
     pie = sp.add_parser("infer-event-type", help="event_type 비어있는 행사 일괄 자동 추론 (제목/카테고리 prefix 기반)")
     pie.add_argument("--all", action="store_true", help="이미 채워진 event_type 도 덮어쓰기 (기본은 NULL 인 것만)")
 
+    sp.add_parser("infer-md-owner", help="md_owner_name 비어있는 행사에 채널별 contacts 1:1 매핑 기준 자동 매핑")
+
     psim = sp.add_parser("save-simulation", help="마진 시뮬레이터 입력값을 행사 simulation_json 에 스냅샷 저장")
     psim.add_argument("id_prefix")
     psim.add_argument("--price", type=int, required=True, help="정상가 (원)")
@@ -1321,6 +1334,8 @@ def main() -> None:
         sys.exit(cmd_sales_all())
     elif args.cmd == "attach-channel-totals":
         sys.exit(cmd_attach_channel_totals(args.id_prefix, args.channel, args.brand, args.close))
+    elif args.cmd == "infer-md-owner":
+        sys.exit(cmd_infer_md_owner())
     elif args.cmd == "save-simulation":
         sys.exit(cmd_save_simulation(
             args.id_prefix, args.price, args.cost, args.ship,
