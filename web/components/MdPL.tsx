@@ -38,6 +38,7 @@ export default function MdPL({ events }: Props) {
   }
   const rows = Object.values(byMd).sort((a, b) => b.sale - a.sale);
   if (rows.length === 0) return null;
+  const maxSale = Math.max(...rows.map((r) => r.sale), 1);
 
   return (
     <div className="mb-4">
@@ -49,14 +50,23 @@ export default function MdPL({ events }: Props) {
           const margin = r.sale > 0 ? (r.op / r.sale) * 100 : 0;
           const roas = r.ad > 0 ? r.sale / r.ad : 0;
           const net = r.op - r.ad;
+          const sharePct = (r.sale / maxSale) * 100;
           return (
             <div key={r.name} className="bg-white border-l-4 border-blue-400 rounded p-3">
               <div className="flex items-center justify-between mb-1">
-                <div className="font-bold text-slate-900">{r.name}</div>
+                <div className="font-bold text-slate-900 text-base">{r.name}</div>
                 <div className="text-[10px] bg-blue-100 text-blue-900 px-1.5 py-0.5 rounded font-bold">
                   {r.total}건 {r.running > 0 && <span className="text-pink-700">· 진행 {r.running}</span>}
                 </div>
               </div>
+              {/* 매출 비교 막대 — 가장 큰 MD 100% 기준 */}
+              {r.sale > 0 && (
+                <div className="mb-2">
+                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-amber-400 to-amber-600" style={{ width: `${sharePct}%` }} />
+                  </div>
+                </div>
+              )}
               <div className="text-xs grid grid-cols-2 gap-x-2 gap-y-0.5">
                 <div>
                   <span className="text-slate-500">매출 </span>

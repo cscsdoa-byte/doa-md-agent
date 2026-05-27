@@ -1,5 +1,4 @@
 import Link from "next/link";
-import BigSeasonChecklist from "@/components/BigSeasonChecklist";
 import Calendar from "@/components/Calendar";
 import ChannelPL from "@/components/ChannelPL";
 import ConflictBanner from "@/components/ConflictBanner";
@@ -121,8 +120,6 @@ export default async function Home() {
         </header>
 
         <SeasonBanner events={payload.events} />
-
-        <BigSeasonChecklist events={payload.events} channels={channels} />
 
         <ConflictBanner events={payload.events} />
 

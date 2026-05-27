@@ -45,6 +45,22 @@ function delta(curr: number, prev: number | undefined): { pct: number | null; ar
   return { pct, arrow: "▼", color: "text-rose-700" };
 }
 
+// 마진율 → 색 (0~30%+ 5단계 그라데이션). 5060 친화 색대비.
+function marginColor(m: number): string {
+  if (m >= 25) return "bg-emerald-500";
+  if (m >= 15) return "bg-emerald-400";
+  if (m >= 8) return "bg-amber-400";
+  if (m >= 0) return "bg-orange-400";
+  return "bg-rose-500";
+}
+function marginTextColor(m: number): string {
+  if (m >= 25) return "text-emerald-700";
+  if (m >= 15) return "text-emerald-600";
+  if (m >= 8) return "text-amber-700";
+  if (m >= 0) return "text-orange-700";
+  return "text-rose-700";
+}
+
 // "실제로 MD가 진행한/진행 중인 행사" 만 카운트.
 // new/reviewing = 아직 결정 안 된 RSS 안내문 → 제외.
 // skip = 패스한 행사 → 제외.
@@ -193,6 +209,50 @@ export default function ChannelPL({ totals, prevTotals, range, channels, events 
             )}
           </div>
         </div>
+        {/* 매출 → 영업이익 → 순이익 시각화 막대 (5060 친화: 큰 막대 한 줄로 흐름 파악) */}
+        {totalSale > 0 && (() => {
+          const opPct = (totalOpProfit / totalSale) * 100;
+          const netPct = (totalNetProfit / totalSale) * 100;
+          const costPct = 100 - opPct;
+          const adPctOfSale = (totalAdCost / totalSale) * 100;
+          return (
+            <div className="mt-3 space-y-2 bg-white rounded-lg p-3 border border-amber-200">
+              {/* 매출 (100% 기준 라벨) */}
+              <div>
+                <div className="flex items-baseline justify-between text-[11px] mb-1">
+                  <span className="font-bold text-slate-700">매출</span>
+                  <span className="text-slate-500">100% (기준)</span>
+                </div>
+                <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-amber-300 to-amber-500" style={{ width: "100%" }} />
+                </div>
+              </div>
+              {/* 영업이익 (광고비 전) — 원가+수수료+택배 차감 후 */}
+              <div>
+                <div className="flex items-baseline justify-between text-[11px] mb-1">
+                  <span className="font-bold text-slate-700">영업이익 <span className="text-slate-400 text-[10px]">← 원가·수수료·택배 차감</span></span>
+                  <span className={`font-bold ${marginTextColor(opPct)}`}>{opPct.toFixed(1)}%</span>
+                </div>
+                <div className="h-3 bg-slate-100 rounded-full overflow-hidden flex">
+                  <div className={`h-full ${marginColor(opPct)}`} style={{ width: `${opPct}%` }} />
+                  <div className="h-full bg-slate-200 flex-1" title={`차감 ${costPct.toFixed(1)}%`} />
+                </div>
+              </div>
+              {/* 순이익 (광고비 후) */}
+              <div>
+                <div className="flex items-baseline justify-between text-[11px] mb-1">
+                  <span className="font-bold text-slate-700">순이익 <span className="text-rose-500 text-[10px]">← 광고비 {adPctOfSale.toFixed(1)}% 추가 차감</span></span>
+                  <span className={`font-bold ${marginTextColor(netPct)}`}>{netPct.toFixed(1)}%</span>
+                </div>
+                <div className="h-3 bg-slate-100 rounded-full overflow-hidden flex">
+                  <div className={`h-full ${marginColor(netPct)}`} style={{ width: `${Math.max(0, netPct)}%` }} />
+                  <div className="h-full bg-rose-200" style={{ width: `${Math.min(adPctOfSale, opPct - Math.max(0, netPct))}%` }} title={`광고비 ${adPctOfSale.toFixed(1)}%`} />
+                  <div className="h-full bg-slate-200 flex-1" />
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* 2-A) 행사 진행 채널 (events 데이터만 사용 — 정산자동화웹 이번 달 X) */}
@@ -235,10 +295,25 @@ export default function ChannelPL({ totals, prevTotals, range, channels, events 
                     )}
                   </div>
                   {hasSales ? (
-                    <div className="text-xs space-y-0.5">
-                      <div>🎯 행사 매출 <b className="text-amber-900">{fmt(ec.sale)}</b>원</div>
-                      <div>영업이익 <b className="text-emerald-700">{fmt(ec.op)}</b>원</div>
-                      <div>마진율 <b>{margin.toFixed(1)}%</b></div>
+                    <div className="text-xs space-y-1">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-slate-600">🎯 행사 매출</span>
+                        <b className="text-base text-amber-900">{fmt(ec.sale)}원</b>
+                      </div>
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-slate-600">영업이익</span>
+                        <b className="text-emerald-700">{fmt(ec.op)}원</b>
+                      </div>
+                      {/* 마진 게이지 */}
+                      <div>
+                        <div className="flex items-baseline justify-between text-[10px] mb-0.5">
+                          <span className="text-slate-500">마진율</span>
+                          <b className={marginTextColor(margin)}>{margin.toFixed(1)}%</b>
+                        </div>
+                        <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                          <div className={`h-full ${marginColor(margin)}`} style={{ width: `${Math.max(0, Math.min(100, margin * 2))}%` }} title="0~50% 스케일" />
+                        </div>
+                      </div>
                       <div className="text-[10px] text-slate-500 mt-0.5">주문 {fmt(ec.orders)} · 수량 {fmt(ec.qty)}</div>
                     </div>
                   ) : pipelineOnly && pipeline > 0 ? (
@@ -348,12 +423,8 @@ export default function ChannelPL({ totals, prevTotals, range, channels, events 
 
               const cardInner = (
                 <>
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    <span className={`font-mono font-bold text-[11px] ${th.bold}`}>{th.abbr}</span>
-                    <span className="text-xs font-semibold">{c.channel}</span>
-                  </div>
-                  <div className="text-[11px] text-slate-600">
-                    매출 {fmt(c.sale)}원
+                  <div className="text-[11px] text-slate-700 font-semibold">
+                    {fmt(c.sale)}원
                   </div>
                   {(() => {
                     const dYoY = c.sale_yoy !== null ? delta(c.sale, c.sale_yoy) : null;
@@ -405,17 +476,34 @@ export default function ChannelPL({ totals, prevTotals, range, channels, events 
                   )}
                 </>
               );
+              // 매출 점유율 (전체 채널 매출 대비) — 시각 막대로 비교 한눈에
+              const grandChSale = channels.reduce((s, x) => s + x.sale, 0);
+              const sharePct = grandChSale > 0 ? (c.sale / grandChSale) * 100 : 0;
+              const cardBody = (
+                <>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className={`font-mono font-bold text-[11px] ${th.bold}`}>{th.abbr}</span>
+                    <span className="text-xs font-semibold flex-1">{c.channel}</span>
+                    <span className="text-[10px] text-slate-500">{sharePct.toFixed(0)}%</span>
+                  </div>
+                  {/* 매출 점유율 막대 */}
+                  <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden mb-1">
+                    <div className={`h-full ${isToss ? "bg-sky-400" : "bg-slate-400"}`} style={{ width: `${sharePct}%` }} />
+                  </div>
+                  {cardInner}
+                </>
+              );
               return isToss ? (
                 <Link
                   key={c.channel}
                   href="/toss-upload"
                   className="bg-sky-50 border border-sky-200 rounded p-2 hover:bg-sky-100 block"
                 >
-                  {cardInner}
+                  {cardBody}
                 </Link>
               ) : (
-                <div key={c.channel} className="bg-slate-50 border rounded p-2 opacity-80">
-                  {cardInner}
+                <div key={c.channel} className="bg-slate-50 border rounded p-2">
+                  {cardBody}
                 </div>
               );
             })}
