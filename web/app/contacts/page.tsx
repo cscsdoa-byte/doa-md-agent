@@ -11,7 +11,7 @@ export default async function ContactsPage() {
   return (
     <main className="min-h-screen bg-slate-50 p-6">
       <div className="max-w-5xl mx-auto">
-        <header className="flex items-center justify-between mb-6">
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">📇 MD 연락처</h1>
             <p className="text-sm text-slate-500 mt-1">

@@ -26,7 +26,7 @@ export default async function VendorsPage() {
   return (
     <main className="min-h-screen bg-slate-50 p-6">
       <div className="max-w-7xl mx-auto">
-        <header className="flex items-center justify-between mb-4">
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">📦 채널 마스터</h1>
             <p className="text-sm text-slate-500 mt-1">
