@@ -123,6 +123,27 @@ def _migrate(conn: sqlite3.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_md_contacts_ch ON md_contacts(channel_key)")
 
+    # 이지데스크 CS 메시지 (조선팔도떡집 카톡·SMS·네이버 상담 raw 로그)
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS cs_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            time TEXT,
+            route TEXT,
+            sender TEXT,
+            receiver TEXT,
+            channel TEXT,
+            channel_name TEXT,
+            message TEXT,
+            status TEXT,
+            first_receive_at TEXT,
+            first_send_at TEXT,
+            imported_at TEXT NOT NULL
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cs_messages_date ON cs_messages(date)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cs_messages_ch ON cs_messages(channel)")
+
     # 반복 행사 템플릿 — 예: "네이버 오늘끝딜 주간". 사용자가 새 행사 등록할 때 prefill 용.
     conn.execute(
         """CREATE TABLE IF NOT EXISTS event_templates (
@@ -484,6 +505,97 @@ def list_contacts(
     return conn.execute(
         "SELECT * FROM md_contacts ORDER BY channel_key, name"
     ).fetchall()
+
+
+def import_cs_messages(
+    conn: sqlite3.Connection,
+    rows: list[dict],
+    replace_dates: bool = True,
+) -> dict:
+    """이지데스크 export 행 batch import.
+
+    replace_dates=True: 이번 batch 의 날짜 범위 데이터를 먼저 삭제 후 insert (중복 방지).
+    Returns: {inserted, deleted_existing, date_min, date_max, channels}
+    """
+    if not rows:
+        return {"inserted": 0, "deleted_existing": 0, "date_min": None, "date_max": None, "channels": {}}
+    dates = sorted({r["date"] for r in rows if r.get("date")})
+    date_min, date_max = (dates[0], dates[-1]) if dates else (None, None)
+
+    deleted = 0
+    if replace_dates and date_min and date_max:
+        cur = conn.execute(
+            "DELETE FROM cs_messages WHERE date BETWEEN ? AND ?",
+            (date_min, date_max),
+        )
+        deleted = cur.rowcount or 0
+
+    now_iso = datetime.now().isoformat()
+    conn.executemany(
+        """INSERT INTO cs_messages
+           (date, time, route, sender, receiver, channel, channel_name,
+            message, status, first_receive_at, first_send_at, imported_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        [
+            (
+                r.get("date"), r.get("time"), r.get("route"), r.get("sender"),
+                r.get("receiver"), r.get("channel"), r.get("channel_name"),
+                r.get("message"), r.get("status"),
+                r.get("first_receive_at"), r.get("first_send_at"),
+                now_iso,
+            )
+            for r in rows
+        ],
+    )
+    # 채널별 카운트 (리포트용)
+    from collections import Counter
+    ch_count = Counter(r.get("channel", "?") for r in rows)
+    return {
+        "inserted": len(rows),
+        "deleted_existing": deleted,
+        "date_min": date_min,
+        "date_max": date_max,
+        "channels": dict(ch_count),
+    }
+
+
+def cs_daily_stats(
+    conn: sqlite3.Connection, days: int = 14
+) -> list[dict]:
+    """최근 N일 일별 인입/발신 + 채널별 분포."""
+    from datetime import date, timedelta
+    end = date.today()
+    start = end - timedelta(days=days - 1)
+    rows = conn.execute(
+        """SELECT date, channel, status, COUNT(*) as n
+           FROM cs_messages
+           WHERE date BETWEEN ? AND ?
+           GROUP BY date, channel, status
+           ORDER BY date""",
+        (start.isoformat(), end.isoformat()),
+    ).fetchall()
+    by_date: dict[str, dict] = {}
+    for r in rows:
+        d = r["date"]
+        if d not in by_date:
+            by_date[d] = {"date": d, "in": 0, "out": 0, "by_channel": {}}
+        n = r["n"]
+        st = r["status"] or ""
+        ch = r["channel"] or "?"
+        # 발신 외 모두 인입으로 집계 (수신/기타)
+        if st == "발신":
+            by_date[d]["out"] += n
+        else:
+            by_date[d]["in"] += n
+        by_date[d]["by_channel"][ch] = by_date[d]["by_channel"].get(ch, 0) + n
+    # 빈 날짜도 채우기
+    out: list[dict] = []
+    cur = start
+    while cur <= end:
+        k = cur.isoformat()
+        out.append(by_date.get(k, {"date": k, "in": 0, "out": 0, "by_channel": {}}))
+        cur += timedelta(days=1)
+    return out
 
 
 def infer_md_owners(conn: sqlite3.Connection) -> tuple[int, int, list[str]]:

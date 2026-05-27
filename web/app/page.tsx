@@ -2,6 +2,7 @@ import Link from "next/link";
 import Calendar from "@/components/Calendar";
 import ChannelPL from "@/components/ChannelPL";
 import ConflictBanner from "@/components/ConflictBanner";
+import CsWidget from "@/components/CsWidget";
 import MdPL from "@/components/MdPL";
 import SeasonBanner from "@/components/SeasonBanner";
 import { loadChannels } from "@/lib/channels";
@@ -91,6 +92,13 @@ export default async function Home() {
               🧾 토스 정산
             </Link>
             <Link
+              href="/cs-upload"
+              className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
+              title="이지데스크 CS .xls 업로드"
+            >
+              💬 CS 업로드
+            </Link>
+            <Link
               href="/templates"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
             >
@@ -133,6 +141,8 @@ export default async function Home() {
         />
 
         <MdPL events={payload.events} />
+
+        <CsWidget cs={payload.cs_daily ?? []} />
 
         <Calendar
           events={payload.events}

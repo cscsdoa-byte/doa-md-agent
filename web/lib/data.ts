@@ -141,6 +141,14 @@ export interface EventsPayload {
   contacts?: Contact[];
   templates?: EventTemplate[];
   channels_master?: ChannelMaster[];
+  cs_daily?: CsDaily[];
+}
+
+export interface CsDaily {
+  date: string;
+  in: number;
+  out: number;
+  by_channel: Record<string, number>;
 }
 
 const DATA_PATH = join(process.cwd(), "..", "data", "events.json");

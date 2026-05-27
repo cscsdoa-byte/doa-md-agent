@@ -400,6 +400,23 @@ def cmd_sales(id_prefix: str, override_channels: list[str] | None, no_filter: bo
     return 0
 
 
+def cmd_import_cs(file_path: str) -> int:
+    """이지데스크 .xls (HTML 포맷) → cs_messages 테이블 import."""
+    from .store import connect, import_cs_messages
+    from .cs_parser import parse_ezdesk_xls
+
+    rows = list(parse_ezdesk_xls(file_path))
+    if not rows:
+        print(f"ERROR: 파싱된 row 0건 — 파일 형식 확인 ({file_path})", file=sys.stderr)
+        return 1
+    with connect() as conn:
+        report = import_cs_messages(conn, rows, replace_dates=True)
+    print(f"✓ CS import: {report['inserted']}건 (기존 {report['deleted_existing']}건 교체)")
+    print(f"  기간: {report['date_min']} ~ {report['date_max']}")
+    print(f"  채널: {report['channels']}")
+    return 0
+
+
 def cmd_infer_md_owner() -> int:
     """md_owner_name 비어있는 행사에 contacts 채널 1:1 매핑 기준 자동 매핑."""
     from .store import connect, infer_md_owners
@@ -587,6 +604,9 @@ def cmd_dump_json(out_path: str | None) -> int:
         contacts = [dict(r) for r in list_contacts(conn)]
         templates = [dict(r) for r in list_templates(conn)]
         channels_master = [dict(r) for r in list_channels_master(conn)]
+        # CS 일별 통계 — 최근 14일 (cs_messages 비어있으면 0 배열)
+        from .store import cs_daily_stats
+        cs_daily = cs_daily_stats(conn, days=14)
     payload = {
         "generated_at": datetime.now().isoformat(),
         "total": s["total"],
@@ -596,6 +616,7 @@ def cmd_dump_json(out_path: str | None) -> int:
         "contacts": contacts,
         "templates": templates,
         "channels_master": channels_master,
+        "cs_daily": cs_daily,
     }
     target.write_text(_json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"✓ dump: {target}  ({len(items)}건)")
@@ -1279,6 +1300,9 @@ def main() -> None:
 
     sp.add_parser("infer-md-owner", help="md_owner_name 비어있는 행사에 채널별 contacts 1:1 매핑 기준 자동 매핑")
 
+    pcs = sp.add_parser("import-cs", help="이지데스크 .xls (HTML 포맷) → cs_messages 테이블 import (같은 날짜 데이터 자동 교체)")
+    pcs.add_argument("file_path", help=".xls 파일 경로")
+
     psim = sp.add_parser("save-simulation", help="마진 시뮬레이터 입력값을 행사 simulation_json 에 스냅샷 저장")
     psim.add_argument("id_prefix")
     psim.add_argument("--price", type=int, required=True, help="정상가 (원)")
@@ -1338,6 +1362,8 @@ def main() -> None:
         sys.exit(cmd_attach_channel_totals(args.id_prefix, args.channel, args.brand, args.close))
     elif args.cmd == "infer-md-owner":
         sys.exit(cmd_infer_md_owner())
+    elif args.cmd == "import-cs":
+        sys.exit(cmd_import_cs(args.file_path))
     elif args.cmd == "save-simulation":
         sys.exit(cmd_save_simulation(
             args.id_prefix, args.price, args.cost, args.ship,

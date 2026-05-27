@@ -21,6 +21,7 @@ data/events.json
 data/report.html
 data/notify_state.json
 data/poll.log
+data/ezdesk_*.xls
 
 # Playwright 세션
 crawler/storage/*.json
