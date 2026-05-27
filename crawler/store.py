@@ -723,6 +723,114 @@ def cs_critical_issues(
     return out
 
 
+def cs_analyze_message(
+    conn: sqlite3.Connection,
+    customer_message: str,
+    limit_replies: int = 5,
+) -> dict:
+    """인입 메시지 종합 분석 — intent / sentiment / 추출 정보 / 매뉴얼 / 과거 답변.
+
+    Returns:
+        {
+          "intent": "입금/송금",
+          "sentiment": "일반|긴급|불만|감사",
+          "urgency": 0-3 (0=일반, 3=즉시 대응),
+          "extracted": {
+            "order_ids": [...],
+            "phones": [...],
+            "amounts": [...],
+            "products": [...],  # 조선팔도떡집 상품명 매칭
+            "dates": [...]
+          },
+          "similar_replies": [...]  # cs_find_similar_replies 결과
+        }
+    """
+    import re as _re
+
+    msg = customer_message
+    msg_lower = msg.lower()
+
+    # 1. intent — 매뉴얼 카테고리 매핑
+    intent_groups = {
+        "입금/송금": ["입금", "송금", "결제", "보냈"],
+        "배송조회": ["배송", "언제", "어디", "도착", "출고", "송장"],
+        "상담연결": ["상담원", "상담사", "전화", "연결"],
+        "환불": ["환불", "돈 돌려"],
+        "취소": ["취소"],
+        "교환·반품": ["교환", "반품", "바꿔", "다시 보내"],
+        "불량·상품이상": ["불량", "곰팡이", "변질", "상했", "이상", "썩었", "터졌", "찢어", "부서졌"],
+        "배송지연": ["안 왔", "안왔", "안 도착", "늦어", "지연"],
+        "강한불만": ["진짜", "최악", "실망", "별로", "짜증", "화가", "신고", "소비자보호원", "법적"],
+        "주문문의": ["주문", "확인"],
+    }
+    intent = "일반문의"
+    for k, kws in intent_groups.items():
+        if any(kw in msg for kw in kws):
+            intent = k
+            break
+
+    # 2. sentiment + urgency
+    danger_kws = ["환불", "불량", "곰팡이", "변질", "상했", "썩었", "신고", "소비자보호원", "법적", "최악", "진짜 너무", "화가"]
+    urgent_kws = ["급해", "급하", "빨리", "지금", "당장", "오늘 안에"]
+    angry_kws = ["짜증", "실망", "별로", "최악", "진짜"]
+    thank_kws = ["감사", "고맙", "잘 받았", "맛있"]
+
+    urgency = 0
+    sentiment = "일반"
+    if any(k in msg for k in danger_kws):
+        sentiment = "긴급"; urgency = 3
+    elif any(k in msg for k in angry_kws):
+        sentiment = "불만"; urgency = 2
+    elif any(k in msg for k in urgent_kws):
+        sentiment = "독촉"; urgency = 2
+    elif any(k in msg for k in thank_kws):
+        sentiment = "감사"; urgency = 0
+
+    # 3. 추출 정보
+    # 주문번호 — 연속 숫자 10자리 이상 (조선팔도떡집 주문번호 형식)
+    order_ids = _re.findall(r"\b\d{10,16}\b", msg)
+    # 전화번호 — 010-XXXX-XXXX 또는 01012345678
+    phones = _re.findall(r"01[016789][\s\-]?\d{3,4}[\s\-]?\d{4}", msg)
+    # 금액 — XX,XXX원 or X만원
+    amounts = []
+    for m in _re.finditer(r"(\d{1,3}(?:,\d{3})+\s*원|\d+\s*만\s*원|\d{4,}\s*원)", msg):
+        amounts.append(m.group(1).strip())
+    # 날짜 — M월 D일, MM/DD, M/D
+    dates = []
+    for m in _re.finditer(r"\d{1,2}월\s*\d{1,2}일|\d{1,2}/\d{1,2}", msg):
+        dates.append(m.group(0))
+    # 상품명 — 조선팔도떡집 핵심 상품
+    product_kws = [
+        "두쫀모", "두바이쫀득", "두쫀쿠",
+        "쑥콩버무리", "쑥콩설기", "쑥버무리",
+        "밤설기", "서리태설기",
+        "딸기모찌", "비타베리", "오트메딘",
+    ]
+    products = []
+    for p in product_kws:
+        if p in msg:
+            products.append(p)
+
+    extracted = {
+        "order_ids": order_ids,
+        "phones": phones,
+        "amounts": amounts,
+        "products": products,
+        "dates": dates,
+    }
+
+    # 4. 과거 답변
+    similar = cs_find_similar_replies(conn, customer_message, limit=limit_replies)
+
+    return {
+        "intent": intent,
+        "sentiment": sentiment,
+        "urgency": urgency,
+        "extracted": extracted,
+        "similar_replies": similar,
+    }
+
+
 def cs_find_similar_replies(
     conn: sqlite3.Connection,
     customer_message: str,

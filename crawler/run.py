@@ -410,6 +410,16 @@ def cmd_cs_similar_replies(customer_message: str, limit: int = 5) -> int:
     return 0
 
 
+def cmd_cs_analyze(customer_message: str) -> int:
+    """인입 메시지 종합 분석 (intent + sentiment + 추출정보 + 과거 답변) JSON."""
+    import json as _j
+    from .store import connect, cs_analyze_message
+    with connect() as conn:
+        out = cs_analyze_message(conn, customer_message)
+    print(_j.dumps(out, ensure_ascii=False))
+    return 0
+
+
 def cmd_import_cs(file_path: str, clear_all: bool = False) -> int:
     """이지데스크 .xls (HTML 포맷) → cs_messages 테이블 import.
 
@@ -1351,6 +1361,9 @@ def main() -> None:
     pcsr.add_argument("customer_message", help="새 인입 메시지")
     pcsr.add_argument("--limit", type=int, default=5)
 
+    pcsa = sp.add_parser("cs-analyze", help="인입 메시지 종합 분석 (intent+sentiment+추출+과거답변) JSON")
+    pcsa.add_argument("customer_message")
+
     psim = sp.add_parser("save-simulation", help="마진 시뮬레이터 입력값을 행사 simulation_json 에 스냅샷 저장")
     psim.add_argument("id_prefix")
     psim.add_argument("--price", type=int, required=True, help="정상가 (원)")
@@ -1416,6 +1429,8 @@ def main() -> None:
         sys.exit(cmd_cs_clear())
     elif args.cmd == "cs-similar-replies":
         sys.exit(cmd_cs_similar_replies(args.customer_message, args.limit))
+    elif args.cmd == "cs-analyze":
+        sys.exit(cmd_cs_analyze(args.customer_message))
     elif args.cmd == "save-simulation":
         sys.exit(cmd_save_simulation(
             args.id_prefix, args.price, args.cost, args.ship,

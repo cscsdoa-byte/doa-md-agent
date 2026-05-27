@@ -24,7 +24,27 @@ export default function CsManualPanel({ items }: Props) {
   const [search, setSearch] = useState("");
   const [customerMsg, setCustomerMsg] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
-  const [aiResult, setAiResult] = useState<{ reply?: string; error?: string; context_count?: number; intent?: string | null } | null>(null);
+  interface ReplyOption { label: string; text: string }
+  interface AnalysisExtracted {
+    order_ids: string[]; phones: string[]; amounts: string[]; products: string[]; dates: string[];
+  }
+  interface AnalysisData {
+    intent: string;
+    sentiment: string;
+    urgency: number;
+    extracted: AnalysisExtracted;
+    similar_replies: { intent: string; customer_msg: string; agent_reply: string; count: number }[];
+  }
+  interface AiResult {
+    analysis?: AnalysisData | null;
+    analysis_summary?: string;
+    replies?: ReplyOption[];
+    follow_up_actions?: string[];
+    escalation?: string;
+    error?: string;
+    raw?: string;
+  }
+  const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   // 메시지 또는 검색어 기반 필터링
@@ -67,9 +87,9 @@ export default function CsManualPanel({ items }: Props) {
       });
       const j = await r.json();
       if (!r.ok) {
-        setAiResult({ error: j.error || "AI 호출 실패" });
+        setAiResult({ error: j.error || "AI 호출 실패", raw: j.raw });
       } else {
-        setAiResult({ reply: j.reply, context_count: j.context_count, intent: j.intent });
+        setAiResult(j as AiResult);
       }
     } catch (e) {
       setAiResult({ error: (e as Error).message });
@@ -116,27 +136,123 @@ export default function CsManualPanel({ items }: Props) {
                 서버 .env 에 <code>ANTHROPIC_API_KEY</code> 설정 필요
               </div>
             )}
+            {aiResult.raw && (
+              <pre className="mt-1 text-[10px] overflow-auto bg-white p-1 rounded">{aiResult.raw}</pre>
+            )}
           </div>
         )}
-        {aiResult?.reply && (
-          <div className="mt-2 bg-slate-50 border border-slate-200 border-l-4 border-l-indigo-500 rounded p-3">
-            <div className="flex items-baseline justify-between mb-1">
-              <span className="text-[11px] font-bold text-slate-800">🤖 Claude AI 추천 답변</span>
-              <button
-                onClick={() => copyToClipboard(aiResult.reply!, "ai")}
-                className="text-[10px] px-2 py-0.5 bg-white border border-slate-300 rounded hover:bg-slate-100"
-              >
-                {copied === "ai" ? "✓ 복사됨" : "📋 복사"}
-              </button>
-            </div>
-            <pre className="text-xs whitespace-pre-wrap text-slate-800">{aiResult.reply}</pre>
-            <div className="mt-2 text-[10px] text-slate-600">
-              {aiResult.context_count && aiResult.context_count > 0 ? (
-                <>📚 <b>실제 운영 답변 {aiResult.context_count}건</b> 컨텍스트로 학습됨{aiResult.intent && ` (${aiResult.intent})`} · 회사 톤 반영</>
-              ) : (
-                <>⚠️ 과거 비슷한 답변 없음 — 매뉴얼 기준으로 생성됨 (CS 데이터 업로드하면 더 정확)</>
-              )}
-              <br />※ 정확한 정보(주문번호/금액 등)는 직접 확인 후 발송
+        {aiResult && !aiResult.error && (
+          <div className="mt-3 space-y-3">
+            {/* 분석 카드 */}
+            {aiResult.analysis && (
+              <div className="bg-slate-50 border border-slate-200 border-l-4 border-l-slate-500 rounded p-3">
+                <div className="text-[11px] font-bold text-slate-800 mb-1.5">🔍 분석 결과</div>
+                {aiResult.analysis_summary && (
+                  <div className="text-xs text-slate-700 mb-2">{aiResult.analysis_summary}</div>
+                )}
+                <div className="flex flex-wrap gap-1.5 text-[10px] mb-1">
+                  <span className="px-1.5 py-0.5 bg-white border border-slate-300 rounded">
+                    의도: <b>{aiResult.analysis.intent}</b>
+                  </span>
+                  <span className={`px-1.5 py-0.5 rounded border ${
+                    aiResult.analysis.urgency >= 3 ? "bg-rose-50 border-rose-300 text-rose-800" :
+                    aiResult.analysis.urgency >= 2 ? "bg-amber-50 border-amber-300 text-amber-800" :
+                    "bg-white border-slate-300"
+                  }`}>
+                    감정: <b>{aiResult.analysis.sentiment}</b> · 긴급도 {aiResult.analysis.urgency}/3
+                  </span>
+                  <span className="px-1.5 py-0.5 bg-white border border-slate-300 rounded">
+                    과거 답변 매칭: <b>{aiResult.analysis.similar_replies.length}건</b>
+                  </span>
+                </div>
+                {(() => {
+                  const e = aiResult.analysis!.extracted;
+                  const lines: { k: string; v: string }[] = [];
+                  if (e.order_ids.length) lines.push({ k: "주문번호", v: e.order_ids.join(", ") });
+                  if (e.phones.length) lines.push({ k: "전화번호", v: e.phones.join(", ") });
+                  if (e.amounts.length) lines.push({ k: "금액", v: e.amounts.join(", ") });
+                  if (e.products.length) lines.push({ k: "상품", v: e.products.join(", ") });
+                  if (e.dates.length) lines.push({ k: "날짜", v: e.dates.join(", ") });
+                  if (lines.length === 0) return null;
+                  return (
+                    <div className="mt-1.5 text-[10px] grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-0.5">
+                      {lines.map((l, i) => (
+                        <div key={i} className="text-slate-600">
+                          <span className="text-slate-400">{l.k}:</span> <b className="text-slate-800 font-mono">{l.v}</b>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Escalation 경고 */}
+            {aiResult.escalation && (
+              <div className="bg-rose-50 border border-rose-300 border-l-4 border-l-rose-600 rounded p-2 text-xs text-rose-900">
+                🚨 <b>{aiResult.escalation}</b>
+              </div>
+            )}
+
+            {/* 답변 3개 옵션 */}
+            {aiResult.replies && aiResult.replies.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-[11px] font-bold text-slate-800">🤖 Claude 답변 옵션 (선택해서 복사)</div>
+                {aiResult.replies.map((opt, i) => {
+                  const key = `ai-${i}`;
+                  return (
+                    <div key={i} className="bg-slate-50 border border-slate-200 border-l-4 border-l-indigo-500 rounded p-2">
+                      <div className="flex items-baseline justify-between mb-1">
+                        <span className="text-[11px] font-semibold text-slate-700">📝 {opt.label}</span>
+                        <button
+                          onClick={() => copyToClipboard(opt.text, key)}
+                          className="text-[10px] px-2 py-0.5 bg-white border border-slate-300 rounded hover:bg-slate-100"
+                        >
+                          {copied === key ? "✓ 복사됨" : "📋 복사"}
+                        </button>
+                      </div>
+                      <pre className="text-xs whitespace-pre-wrap text-slate-800">{opt.text}</pre>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* 후속 액션 */}
+            {aiResult.follow_up_actions && aiResult.follow_up_actions.length > 0 && (
+              <div className="bg-white border border-slate-200 rounded p-2">
+                <div className="text-[11px] font-bold text-slate-800 mb-1">✅ 후속 액션 (답변 후 처리)</div>
+                <ul className="space-y-0.5">
+                  {aiResult.follow_up_actions.map((a, i) => (
+                    <li key={i} className="text-[11px] text-slate-700 flex items-baseline gap-1.5">
+                      <span className="text-slate-400">{i + 1}.</span>
+                      <span>{a}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* 컨텍스트 투명성 — 매칭된 과거 답변 */}
+            {aiResult.analysis?.similar_replies && aiResult.analysis.similar_replies.length > 0 && (
+              <details className="bg-white border border-slate-200 rounded p-2">
+                <summary className="text-[11px] font-semibold text-slate-600 cursor-pointer">
+                  📚 컨텍스트로 사용된 과거 운영 답변 {aiResult.analysis.similar_replies.length}건 (펼치기)
+                </summary>
+                <div className="mt-2 space-y-1.5">
+                  {aiResult.analysis.similar_replies.map((p, i) => (
+                    <div key={i} className="text-[10px] bg-slate-50 rounded p-1.5 border border-slate-200">
+                      <div className="text-slate-500 mb-0.5">[{i + 1}] {p.intent} · 과거 {p.count}회 발신</div>
+                      <div className="text-slate-700 mb-0.5">👤 {p.customer_msg}</div>
+                      <div className="text-slate-800">💬 {p.agent_reply}</div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            <div className="text-[10px] text-slate-500">
+              ※ 정확한 정보(주문번호/금액/날짜)는 직접 시스템에서 확인 후 발송
             </div>
           </div>
         )}
