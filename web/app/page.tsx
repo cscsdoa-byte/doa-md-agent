@@ -154,7 +154,7 @@ export default async function Home() {
 
         <CsCriticalCard critical={payload.cs_critical ?? []} repeat={payload.cs_repeat ?? []} />
 
-        <CsWidget cs={payload.cs_daily ?? []} hourly={payload.cs_hourly} top={payload.cs_top} canned={payload.cs_canned} />
+        <CsWidget cs={payload.cs_daily ?? []} hourly={payload.cs_hourly} top={payload.cs_top} />
 
         <Calendar
           events={payload.events}

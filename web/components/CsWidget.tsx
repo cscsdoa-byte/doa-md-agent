@@ -24,7 +24,6 @@ interface Props {
   cs: CsDaily[];
   hourly?: CsHourly[];
   top?: CsTopQuestion[];
-  canned?: CsTopQuestion[];
 }
 
 const CHANNEL_COLORS: Record<string, string> = {
@@ -33,7 +32,7 @@ const CHANNEL_COLORS: Record<string, string> = {
   네이버: "bg-emerald-500",
 };
 
-export default function CsWidget({ cs, hourly, top, canned }: Props) {
+export default function CsWidget({ cs, hourly, top }: Props) {
   const total = cs.reduce((s, d) => s + d.in + d.out, 0);
   // 데이터 없으면 안내 카드만
   if (total === 0) {
@@ -189,26 +188,6 @@ export default function CsWidget({ cs, hourly, top, canned }: Props) {
         </div>
       )}
 
-      {/* 반복 발신 (캔드답변) — 자동화 효과 측정 */}
-      {canned && canned.length > 0 && (
-        <div className="pt-2 mt-2 border-t border-slate-100">
-          <div className="text-[10px] text-slate-500 mb-1">
-            🔁 반복 발신 답변 TOP — <b>이미 운영 중인 캔드답변</b> (챗봇 시나리오 매핑 우선순위)
-          </div>
-          <ol className="space-y-0.5">
-            {canned.slice(0, 5).map((q, i) => (
-              <li key={i} className="text-[11px] flex items-baseline gap-2 bg-blue-50 px-2 py-1 rounded">
-                <span className="font-mono text-slate-400">{i + 1}.</span>
-                <span className="flex-1 truncate" title={q.sample}>{q.sample}</span>
-                <span className="text-[10px] text-blue-700 font-bold whitespace-nowrap">{q.count}회</span>
-                {q.variants > 1 && (
-                  <span className="text-[10px] text-slate-400 whitespace-nowrap">+{q.variants - 1}변형</span>
-                )}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
     </div>
   );
 }
