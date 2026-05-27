@@ -6,6 +6,7 @@ import CsWidget from "@/components/CsWidget";
 import MdPL from "@/components/MdPL";
 import SeasonBanner from "@/components/SeasonBanner";
 import SystemHealthCard from "@/components/SystemHealthCard";
+import TodaysActionsCard from "@/components/TodaysActionsCard";
 import { loadChannels } from "@/lib/channels";
 import { loadEvents } from "@/lib/data";
 import { checkSessions, checkSettleToken } from "@/lib/health";
@@ -132,6 +133,8 @@ export default async function Home() {
         </header>
 
         <SystemHealthCard token={tokenStatus} sessions={sessionIssues} events={payload.events} />
+
+        <TodaysActionsCard events={payload.events} />
 
         <SeasonBanner events={payload.events} />
 
