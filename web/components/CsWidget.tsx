@@ -1,8 +1,10 @@
 import Link from "next/link";
-import type { CsDaily } from "@/lib/data";
+import type { CsDaily, CsHourly, CsTopQuestion } from "@/lib/data";
 
 interface Props {
   cs: CsDaily[];
+  hourly?: CsHourly[];
+  top?: CsTopQuestion[];
 }
 
 const CHANNEL_COLORS: Record<string, string> = {
@@ -11,7 +13,7 @@ const CHANNEL_COLORS: Record<string, string> = {
   네이버: "bg-emerald-500",
 };
 
-export default function CsWidget({ cs }: Props) {
+export default function CsWidget({ cs, hourly, top }: Props) {
   const total = cs.reduce((s, d) => s + d.in + d.out, 0);
   // 데이터 없으면 안내 카드만
   if (total === 0) {
@@ -85,7 +87,7 @@ export default function CsWidget({ cs }: Props) {
       </div>
 
       {/* 일별 막대 차트 */}
-      <div>
+      <div className="mb-2">
         <div className="text-[10px] text-slate-500 mb-1">일별 인입·발신</div>
         <div className="flex items-end gap-0.5 h-16">
           {cs.map((d) => {
@@ -108,6 +110,56 @@ export default function CsWidget({ cs }: Props) {
           <span>{cs[cs.length - 1]?.date.slice(5) ?? ""}</span>
         </div>
       </div>
+
+      {/* 시간대별 평균 (최근 7일) */}
+      {hourly && hourly.length > 0 && (() => {
+        const maxH = Math.max(...hourly.map((h) => h.in + h.out), 1);
+        const peakHour = hourly.reduce((p, c) => (c.in > p.in ? c : p), hourly[0]);
+        return (
+          <div className="mb-2 pt-2 border-t border-slate-100">
+            <div className="text-[10px] text-slate-500 mb-1">
+              시간대 평균 (최근 7일) · 피크 <b className="text-rose-700">{peakHour.hour}시</b> 일평균 {peakHour.in}건 인입
+            </div>
+            <div className="flex items-end gap-px h-10">
+              {hourly.map((h) => {
+                const inH = ((h.in) / maxH) * 100;
+                const outH = ((h.out) / maxH) * 100;
+                const isPeak = h.hour === peakHour.hour;
+                return (
+                  <div key={h.hour} className="flex-1 flex flex-col justify-end gap-px" title={`${h.hour}시 · 인입 ${h.in} · 발신 ${h.out}`}>
+                    <div className="bg-slate-300" style={{ height: `${outH}%`, minHeight: h.out > 0 ? "1px" : "0" }}></div>
+                    <div className={isPeak ? "bg-rose-500" : "bg-blue-400"} style={{ height: `${inH}%`, minHeight: h.in > 0 ? "1px" : "0" }}></div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-between text-[9px] text-slate-400 mt-1">
+              <span>0시</span><span>6시</span><span>12시</span><span>18시</span><span>23시</span>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 짧은 질문 top — 자동응답 후보 */}
+      {top && top.length > 0 && (
+        <div className="pt-2 border-t border-slate-100">
+          <div className="text-[10px] text-slate-500 mb-1">
+            🤖 짧은 질문 TOP — <b>자동응답·캔드답변 후보</b> (최근 30일, 20자 미만)
+          </div>
+          <ol className="space-y-0.5">
+            {top.slice(0, 5).map((q, i) => (
+              <li key={i} className="text-[11px] flex items-baseline gap-2 bg-slate-50 px-2 py-1 rounded">
+                <span className="font-mono text-slate-400">{i + 1}.</span>
+                <span className="flex-1 truncate" title={q.sample}>{q.sample}</span>
+                <span className="text-[10px] text-emerald-700 font-bold whitespace-nowrap">{q.count}회</span>
+                {q.variants > 1 && (
+                  <span className="text-[10px] text-slate-400 whitespace-nowrap">+{q.variants - 1}변형</span>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
     </div>
   );
 }

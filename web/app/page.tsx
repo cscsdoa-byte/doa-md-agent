@@ -148,7 +148,7 @@ export default async function Home() {
 
         <MdPL events={payload.events} />
 
-        <CsWidget cs={payload.cs_daily ?? []} />
+        <CsWidget cs={payload.cs_daily ?? []} hourly={payload.cs_hourly} top={payload.cs_top} />
 
         <Calendar
           events={payload.events}

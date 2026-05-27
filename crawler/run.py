@@ -604,9 +604,11 @@ def cmd_dump_json(out_path: str | None) -> int:
         contacts = [dict(r) for r in list_contacts(conn)]
         templates = [dict(r) for r in list_templates(conn)]
         channels_master = [dict(r) for r in list_channels_master(conn)]
-        # CS 일별 통계 — 최근 14일 (cs_messages 비어있으면 0 배열)
-        from .store import cs_daily_stats
+        # CS 통계 — 일별/시간대별/짧은 질문 top
+        from .store import cs_daily_stats, cs_hourly_stats, cs_top_questions
         cs_daily = cs_daily_stats(conn, days=14)
+        cs_hourly = cs_hourly_stats(conn, days=7)
+        cs_top = cs_top_questions(conn, max_len=20, limit=10, days=30)
     payload = {
         "generated_at": datetime.now().isoformat(),
         "total": s["total"],
@@ -617,6 +619,8 @@ def cmd_dump_json(out_path: str | None) -> int:
         "templates": templates,
         "channels_master": channels_master,
         "cs_daily": cs_daily,
+        "cs_hourly": cs_hourly,
+        "cs_top": cs_top,
     }
     target.write_text(_json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"✓ dump: {target}  ({len(items)}건)")

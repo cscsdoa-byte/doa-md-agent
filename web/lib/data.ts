@@ -142,6 +142,8 @@ export interface EventsPayload {
   templates?: EventTemplate[];
   channels_master?: ChannelMaster[];
   cs_daily?: CsDaily[];
+  cs_hourly?: CsHourly[];
+  cs_top?: CsTopQuestion[];
 }
 
 export interface CsDaily {
@@ -149,6 +151,18 @@ export interface CsDaily {
   in: number;
   out: number;
   by_channel: Record<string, number>;
+}
+
+export interface CsHourly {
+  hour: number;
+  in: number;
+  out: number;
+}
+
+export interface CsTopQuestion {
+  sample: string;
+  count: number;
+  variants: number;
 }
 
 const DATA_PATH = join(process.cwd(), "..", "data", "events.json");

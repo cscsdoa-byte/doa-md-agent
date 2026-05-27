@@ -559,6 +559,85 @@ def import_cs_messages(
     }
 
 
+def cs_top_questions(
+    conn: sqlite3.Connection, max_len: int = 20, limit: int = 10, days: int = 30
+) -> list[dict]:
+    """짧고 빈번한 인입 메시지 (자동응답 후보).
+
+    - 상태='수신' (인입만)
+    - 메시지 길이 ≤ max_len (20자 미만이 87% 차지 — 정형화된 질문)
+    - 최근 N일
+    - normalize: 띄어쓰기·구두점 제거 후 묶기
+    """
+    from datetime import date, timedelta
+    import re as _re
+    from collections import Counter
+
+    start = (date.today() - timedelta(days=days - 1)).isoformat()
+    rows = conn.execute(
+        """SELECT message FROM cs_messages
+           WHERE status = '수신'
+             AND date >= ?
+             AND message IS NOT NULL
+             AND length(message) <= ?
+             AND length(message) > 1""",
+        (start, max_len),
+    ).fetchall()
+
+    norm_to_originals: dict[str, list[str]] = {}
+    counter: Counter[str] = Counter()
+    for r in rows:
+        msg = (r["message"] or "").strip()
+        if not msg:
+            continue
+        # normalize — 공백/구두점/조사 제거하여 같은 의도 묶기
+        norm = _re.sub(r"[\s\.\,\!\?\~\-\/\(\)\[\]\:]+", "", msg).lower()
+        if not norm:
+            continue
+        counter[norm] += 1
+        norm_to_originals.setdefault(norm, []).append(msg)
+
+    out = []
+    for norm, count in counter.most_common(limit):
+        # 가장 흔한 원본 형태 1개를 대표로
+        originals = Counter(norm_to_originals[norm])
+        sample = originals.most_common(1)[0][0]
+        out.append({"sample": sample, "count": count, "variants": len(originals)})
+    return out
+
+
+def cs_hourly_stats(
+    conn: sqlite3.Connection, days: int = 7
+) -> list[dict]:
+    """최근 N일 시간대별 인입/발신 평균 (0~23시)."""
+    from datetime import date, timedelta
+    start = (date.today() - timedelta(days=days - 1)).isoformat()
+    rows = conn.execute(
+        """SELECT substr(time, 1, 2) as hour, status, COUNT(*) as n
+           FROM cs_messages
+           WHERE date >= ?
+             AND time IS NOT NULL AND length(time) >= 2
+           GROUP BY substr(time, 1, 2), status""",
+        (start,),
+    ).fetchall()
+    by_hour: dict[int, dict] = {h: {"hour": h, "in": 0, "out": 0} for h in range(24)}
+    for r in rows:
+        try:
+            h = int(r["hour"])
+        except (ValueError, TypeError):
+            continue
+        if 0 <= h <= 23:
+            if r["status"] == "발신":
+                by_hour[h]["out"] += r["n"]
+            else:
+                by_hour[h]["in"] += r["n"]
+    # 일평균
+    for h in range(24):
+        by_hour[h]["in"] = round(by_hour[h]["in"] / days, 1)
+        by_hour[h]["out"] = round(by_hour[h]["out"] / days, 1)
+    return list(by_hour.values())
+
+
 def cs_daily_stats(
     conn: sqlite3.Connection, days: int = 14
 ) -> list[dict]:
