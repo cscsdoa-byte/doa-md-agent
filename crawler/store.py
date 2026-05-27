@@ -559,15 +559,45 @@ def import_cs_messages(
     }
 
 
+# 이지데스크 / 카카오 채널톡 / SMS 자동 시스템 메시지 — 자동응답 후보에서 제외.
+# 진짜 고객 입력 텍스트만 보기 위함 (메모리: "인입의 87%가 20자 미만 정형화된 질문").
+CS_SYSTEM_PATTERNS = [
+    "조선팔도떡집 간편 카톡주문",      # 카카오 챗봇 메뉴 진입 자동 메시지
+    "고객이 대화방을 나갔습니다",       # 채널톡 이탈 자동
+    "고객이 대화방에 들어왔습니다",     # 입장 자동
+    "문자주문합니다",                  # SMS 자동 헤더
+    "상품을 문의합니다",                # 카카오 채널톡 시스템
+    "상품보러가기",                    # 시스템 링크 prefix
+    "쇼핑하기",                        # 메뉴
+    "메뉴 선택",                       # 챗봇 메뉴
+    "상담사 연결",                     # 챗봇 → 상담사 자동
+    "원하시는 버튼을 눌러주세요",       # 자동 응답 prefix
+    "조선팔도떡집입니다",               # 자동 인사
+    "안녕하세요",                      # 단독 인사만 (자동 가능성)
+]
+
+
+def _is_cs_system_msg(msg: str) -> bool:
+    s = msg.strip()
+    if not s:
+        return True
+    for p in CS_SYSTEM_PATTERNS:
+        if p in s:
+            return True
+    return False
+
+
 def cs_top_questions(
     conn: sqlite3.Connection, max_len: int = 20, limit: int = 10, days: int = 30
 ) -> list[dict]:
-    """짧고 빈번한 인입 메시지 (자동응답 후보).
+    """짧고 빈번한 인입 메시지 — 시스템 메시지 제외한 진짜 고객 질문 (자동응답 후보).
 
+    필터:
     - 상태='수신' (인입만)
     - 메시지 길이 ≤ max_len (20자 미만이 87% 차지 — 정형화된 질문)
-    - 최근 N일
-    - normalize: 띄어쓰기·구두점 제거 후 묶기
+    - CS_SYSTEM_PATTERNS 제외 (챗봇 진입/이탈/SMS 헤더 등 자동 메시지)
+    - 길이 ≥ 3자 (이모티콘 단독 등 노이즈 제외)
+    - normalize: 띄어쓰기·구두점 제거 후 묶기 (같은 의도 다른 표현)
     """
     from datetime import date, timedelta
     import re as _re
@@ -580,7 +610,7 @@ def cs_top_questions(
              AND date >= ?
              AND message IS NOT NULL
              AND length(message) <= ?
-             AND length(message) > 1""",
+             AND length(message) >= 3""",
         (start, max_len),
     ).fetchall()
 
@@ -588,20 +618,71 @@ def cs_top_questions(
     counter: Counter[str] = Counter()
     for r in rows:
         msg = (r["message"] or "").strip()
-        if not msg:
+        if not msg or _is_cs_system_msg(msg):
             continue
         # normalize — 공백/구두점/조사 제거하여 같은 의도 묶기
         norm = _re.sub(r"[\s\.\,\!\?\~\-\/\(\)\[\]\:]+", "", msg).lower()
-        if not norm:
+        if not norm or len(norm) < 2:
             continue
         counter[norm] += 1
         norm_to_originals.setdefault(norm, []).append(msg)
 
     out = []
     for norm, count in counter.most_common(limit):
-        # 가장 흔한 원본 형태 1개를 대표로
         originals = Counter(norm_to_originals[norm])
         sample = originals.most_common(1)[0][0]
+        out.append({"sample": sample, "count": count, "variants": len(originals)})
+    return out
+
+
+def cs_top_canned(
+    conn: sqlite3.Connection, max_len: int = 200, limit: int = 10, days: int = 30
+) -> list[dict]:
+    """반복 발신 메시지 = 캔드답변(자주 쓰는 답변). 자동화 효과 측정용.
+
+    메모리: 발신의 63%가 반복 캔드답변 — 챗봇으로 옮기면 시간 절감 큼.
+    필터:
+    - 상태='발신', 길이 ≤ max_len
+    - 자동 시스템 메시지 제외 (CS_SYSTEM_PATTERNS)
+    - 최소 2회 이상 발신
+    """
+    from datetime import date, timedelta
+    import re as _re
+    from collections import Counter
+
+    start = (date.today() - timedelta(days=days - 1)).isoformat()
+    rows = conn.execute(
+        """SELECT message FROM cs_messages
+           WHERE status = '발신'
+             AND date >= ?
+             AND message IS NOT NULL
+             AND length(message) BETWEEN 5 AND ?""",
+        (start, max_len),
+    ).fetchall()
+
+    norm_to_originals: dict[str, list[str]] = {}
+    counter: Counter[str] = Counter()
+    for r in rows:
+        msg = (r["message"] or "").strip()
+        if not msg or _is_cs_system_msg(msg):
+            continue
+        norm = _re.sub(r"[\s\.\,\!\?\~\-\/\(\)\[\]\:\#]+", "", msg).lower()
+        # 고객명/주문번호 같은 변수 부분 normalize (숫자 4+ 자리는 placeholder)
+        norm = _re.sub(r"\d{4,}", "N", norm)
+        if not norm or len(norm) < 5:
+            continue
+        counter[norm] += 1
+        norm_to_originals.setdefault(norm, []).append(msg)
+
+    out = []
+    for norm, count in counter.most_common(limit):
+        if count < 2:
+            continue
+        originals = Counter(norm_to_originals[norm])
+        sample = originals.most_common(1)[0][0]
+        # 너무 길면 잘라서
+        if len(sample) > 80:
+            sample = sample[:77] + "..."
         out.append({"sample": sample, "count": count, "variants": len(originals)})
     return out
 

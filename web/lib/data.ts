@@ -144,6 +144,7 @@ export interface EventsPayload {
   cs_daily?: CsDaily[];
   cs_hourly?: CsHourly[];
   cs_top?: CsTopQuestion[];
+  cs_canned?: CsTopQuestion[];
 }
 
 export interface CsDaily {
