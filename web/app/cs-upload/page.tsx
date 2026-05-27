@@ -18,6 +18,7 @@ export default function CsUploadPage() {
   const [result, setResult] = useState<UploadResult | null>(null);
   const [fileName, setFileName] = useState<string>("");
   const [dragOver, setDragOver] = useState(false);
+  const [clearAll, setClearAll] = useState(false);
 
   async function uploadFile(f: File) {
     setBusy(true);
@@ -25,7 +26,23 @@ export default function CsUploadPage() {
     try {
       const fd = new FormData();
       fd.append("file", f);
+      if (clearAll) fd.append("clear_all", "1");
       const r = await fetch(apiUrl("/api/cs-upload"), { method: "POST", body: fd });
+      const data = (await r.json()) as UploadResult;
+      setResult(data);
+    } catch (e) {
+      setResult({ error: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearAllData() {
+    if (!confirm("CS 데이터 전체를 삭제할까요?\n이 작업은 되돌릴 수 없습니다.")) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await fetch(apiUrl("/api/cs-upload"), { method: "DELETE" });
       const data = (await r.json()) as UploadResult;
       setResult(data);
     } catch (e) {
@@ -112,13 +129,30 @@ export default function CsUploadPage() {
           {fileName && (
             <div className="mt-2 text-sm text-slate-600">선택됨: <b>{fileName}</b></div>
           )}
+          <label className="mt-3 flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={clearAll}
+              onChange={(e) => setClearAll(e.target.checked)}
+              className="w-4 h-4"
+            />
+            <span>⚠️ <b>업로드 전 기존 데이터 전체 삭제</b> (다른 기간 파일로 교체 시 체크)</span>
+          </label>
           <button
             onClick={handleUpload}
             disabled={busy}
-            className="mt-4 w-full px-4 py-3 bg-emerald-600 text-white text-base font-bold rounded
-                       hover:bg-emerald-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
+            className={`mt-3 w-full px-4 py-3 text-white text-base font-bold rounded disabled:bg-slate-400 disabled:cursor-not-allowed ${
+              clearAll ? "bg-rose-600 hover:bg-rose-700" : "bg-emerald-600 hover:bg-emerald-700"
+            }`}
           >
-            {busy ? "⏳ 업로드 중..." : "📤 업로드"}
+            {busy ? "⏳ 처리 중..." : clearAll ? "🗑️ 전체 삭제 후 업로드" : "📤 업로드"}
+          </button>
+          <button
+            onClick={clearAllData}
+            disabled={busy}
+            className="mt-2 w-full px-3 py-2 text-sm bg-slate-100 text-slate-600 rounded hover:bg-slate-200 disabled:opacity-50"
+          >
+            🗑️ 데이터만 초기화 (파일 없이)
           </button>
         </div>
 

@@ -10,6 +10,7 @@ import { refreshDump, runCli } from "@/lib/cli";
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const file = formData.get("file");
+  const clearAll = formData.get("clear_all") === "1";
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "file 필드 없음" }, { status: 400 });
   }
@@ -17,21 +18,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: ".xls 파일만 가능" }, { status: 400 });
   }
   const buf = Buffer.from(await file.arrayBuffer());
-  // 임시 파일 — data/cs_uploads/<timestamp>.xls
   const ts = Date.now();
   const dir = join(process.cwd(), "..", "data", "cs_uploads");
   await mkdir(dir, { recursive: true });
   const tmpPath = join(dir, `upload_${ts}.xls`);
   await writeFile(tmpPath, buf);
   try {
-    const { stdout } = await runCli(["import-cs", tmpPath]);
+    const args = ["import-cs", tmpPath];
+    if (clearAll) args.push("--clear");
+    const { stdout } = await runCli(args);
     await refreshDump();
-    // 임시 파일 정리 (실패해도 무시)
     await unlink(tmpPath).catch(() => {});
     return NextResponse.json({ ok: true, stdout });
   } catch (e) {
     const err = e as Error & { stderr?: string };
     await unlink(tmpPath).catch(() => {});
+    return NextResponse.json({ error: err.message, stderr: err.stderr ?? null }, { status: 500 });
+  }
+}
+
+export async function DELETE() {
+  // 전체 비우기 — UI에서 "초기화" 버튼용
+  try {
+    const { stdout } = await runCli(["cs-clear"]);
+    await refreshDump();
+    return NextResponse.json({ ok: true, stdout });
+  } catch (e) {
+    const err = e as Error & { stderr?: string };
     return NextResponse.json({ error: err.message, stderr: err.stderr ?? null }, { status: 500 });
   }
 }

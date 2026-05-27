@@ -400,8 +400,12 @@ def cmd_sales(id_prefix: str, override_channels: list[str] | None, no_filter: bo
     return 0
 
 
-def cmd_import_cs(file_path: str) -> int:
-    """이지데스크 .xls (HTML 포맷) → cs_messages 테이블 import."""
+def cmd_import_cs(file_path: str, clear_all: bool = False) -> int:
+    """이지데스크 .xls (HTML 포맷) → cs_messages 테이블 import.
+
+    clear_all=True: import 전에 cs_messages 전체 비움.
+    기본: 같은 날짜 데이터만 자동 교체.
+    """
     from .store import connect, import_cs_messages
     from .cs_parser import parse_ezdesk_xls
 
@@ -410,10 +414,24 @@ def cmd_import_cs(file_path: str) -> int:
         print(f"ERROR: 파싱된 row 0건 — 파일 형식 확인 ({file_path})", file=sys.stderr)
         return 1
     with connect() as conn:
+        if clear_all:
+            n_before = conn.execute("SELECT COUNT(*) FROM cs_messages").fetchone()[0]
+            conn.execute("DELETE FROM cs_messages")
+            print(f"  ⚠ 전체 삭제: {n_before}건")
         report = import_cs_messages(conn, rows, replace_dates=True)
-    print(f"✓ CS import: {report['inserted']}건 (기존 {report['deleted_existing']}건 교체)")
+    print(f"✓ CS import: {report['inserted']}건 (기존 같은날짜 {report['deleted_existing']}건 교체)")
     print(f"  기간: {report['date_min']} ~ {report['date_max']}")
     print(f"  채널: {report['channels']}")
+    return 0
+
+
+def cmd_cs_clear() -> int:
+    """cs_messages 전체 삭제 (재업로드 전 초기화)."""
+    from .store import connect
+    with connect() as conn:
+        n = conn.execute("SELECT COUNT(*) FROM cs_messages").fetchone()[0]
+        conn.execute("DELETE FROM cs_messages")
+    print(f"✓ cs_messages 전체 삭제: {n}건")
     return 0
 
 
@@ -1315,6 +1333,9 @@ def main() -> None:
 
     pcs = sp.add_parser("import-cs", help="이지데스크 .xls (HTML 포맷) → cs_messages 테이블 import (같은 날짜 데이터 자동 교체)")
     pcs.add_argument("file_path", help=".xls 파일 경로")
+    pcs.add_argument("--clear", action="store_true", help="import 전 cs_messages 전체 삭제")
+
+    sp.add_parser("cs-clear", help="cs_messages 전체 삭제 (재업로드 전 초기화)")
 
     psim = sp.add_parser("save-simulation", help="마진 시뮬레이터 입력값을 행사 simulation_json 에 스냅샷 저장")
     psim.add_argument("id_prefix")
@@ -1376,7 +1397,9 @@ def main() -> None:
     elif args.cmd == "infer-md-owner":
         sys.exit(cmd_infer_md_owner())
     elif args.cmd == "import-cs":
-        sys.exit(cmd_import_cs(args.file_path))
+        sys.exit(cmd_import_cs(args.file_path, args.clear))
+    elif args.cmd == "cs-clear":
+        sys.exit(cmd_cs_clear())
     elif args.cmd == "save-simulation":
         sys.exit(cmd_save_simulation(
             args.id_prefix, args.price, args.cost, args.ship,
