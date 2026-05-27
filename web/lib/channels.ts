@@ -21,6 +21,13 @@ const SALES_CHANNEL_KEYS = new Set([
   "esmplus",
   "ns_homeshopping",
   "shoppingnT",
+  // 홈쇼핑 6개 (2026-05-27 추가)
+  "k_shopping",
+  "lotte_homeshopping",
+  "homeshopping_moa",
+  "gongyoung_homeshopping",
+  "cj_onstyle",
+  "shinsegae_homeshopping",
 ]);
 
 let cached: ChannelDef[] | null = null;

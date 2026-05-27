@@ -12,6 +12,12 @@ const KEY_TO_SETTLE_CHANNEL: Record<string, string> = {
   toss_shopping: "토스쇼핑",
   esmplus: "지마켓",
   shoppingnT: "쇼핑엔티",
+  k_shopping: "K쇼핑",
+  lotte_homeshopping: "롯데홈쇼핑",
+  homeshopping_moa: "홈쇼핑모아",
+  gongyoung_homeshopping: "공영홈쇼핑",
+  cj_onstyle: "CJ온스타일",
+  shinsegae_homeshopping: "신세계홈쇼핑",
 };
 
 // 정산자동화웹 채널명 → 시뮬레이터 기준 worst-case 수수료율 (결제 + 정산 합산, 면제 0 가정).
@@ -27,6 +33,13 @@ const EXPECTED_FEE_RATE: Record<string, number> = {
   옥션: 0.13,
   쇼핑엔티: 0.15,
   카카오: 0.033,
+  // 홈쇼핑 6개 — 보수적 15% (실제 정산 데이터 들어오면 채널별로 조정)
+  K쇼핑: 0.15,
+  롯데홈쇼핑: 0.15,
+  홈쇼핑모아: 0.15,
+  공영홈쇼핑: 0.15,
+  CJ온스타일: 0.15,
+  신세계홈쇼핑: 0.15,
 };
 
 interface Props {
@@ -83,6 +96,12 @@ const CHANNEL_TO_KEY: Record<string, string> = {
   지마켓: "esmplus",
   옥션: "esmplus",
   쇼핑엔티: "shoppingnT",
+  K쇼핑: "k_shopping",
+  롯데홈쇼핑: "lotte_homeshopping",
+  홈쇼핑모아: "homeshopping_moa",
+  공영홈쇼핑: "gongyoung_homeshopping",
+  CJ온스타일: "cj_onstyle",
+  신세계홈쇼핑: "shinsegae_homeshopping",
   오늘의집: "ohou",
   자사몰: "own",
   문자주문: "sms",
