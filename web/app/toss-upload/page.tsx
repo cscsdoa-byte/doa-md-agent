@@ -20,13 +20,10 @@ export default function TossUploadPage() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [fileName, setFileName] = useState<string>("");
+  const [dragOver, setDragOver] = useState(false);
+  const [pickedFile, setPickedFile] = useState<File | null>(null);
 
-  async function handleUpload() {
-    const f = fileRef.current?.files?.[0];
-    if (!f) {
-      alert("csv 파일을 먼저 선택하세요.");
-      return;
-    }
+  async function uploadFile(f: File) {
     setBusy(true);
     setResult(null);
     try {
@@ -40,6 +37,29 @@ export default function TossUploadPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleUpload() {
+    const f = pickedFile ?? fileRef.current?.files?.[0];
+    if (!f) {
+      alert("csv 파일을 먼저 선택하세요.");
+      return;
+    }
+    await uploadFile(f);
+  }
+
+  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const f = e.dataTransfer.files?.[0];
+    if (!f) return;
+    if (!f.name.toLowerCase().endsWith(".csv")) {
+      alert("CSV 파일만 올릴 수 있어요.");
+      return;
+    }
+    setPickedFile(f);
+    setFileName(f.name);
+    void uploadFile(f);
   }
 
   return (
@@ -66,15 +86,33 @@ export default function TossUploadPage() {
           <div className="text-amber-900">4. 아래 ↓ 파일 선택 후 업로드 버튼</div>
         </div>
 
+        {/* 드래그앤드롭 영역 */}
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+          className={`mb-3 rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
+            dragOver ? "bg-emerald-50 border-emerald-500" : "bg-white border-slate-300"
+          }`}
+        >
+          <div className="text-3xl mb-1">📥</div>
+          <div className="text-base font-semibold text-slate-700">CSV 파일을 여기로 끌어다 놓으세요</div>
+          <div className="text-xs text-slate-500 mt-1">놓으면 바로 업로드됩니다</div>
+        </div>
+
         {/* 업로드 카드 */}
         <div className="bg-white border rounded-lg p-6 shadow-sm">
           <label className="block">
-            <span className="text-base font-semibold text-slate-800 mb-2 block">정산 csv 파일</span>
+            <span className="text-base font-semibold text-slate-800 mb-2 block">또는 파일 선택</span>
             <input
               ref={fileRef}
               type="file"
               accept=".csv"
-              onChange={(e) => setFileName(e.target.files?.[0]?.name ?? "")}
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                setPickedFile(f);
+                setFileName(f?.name ?? "");
+              }}
               className="block w-full text-base text-slate-700
                          file:mr-3 file:py-3 file:px-5
                          file:rounded file:border-0

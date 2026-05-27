@@ -504,12 +504,20 @@ def cmd_dump_json(out_path: str | None) -> int:
                     d["sales"] = None
             else:
                 d["sales"] = None
+            if d.get("simulation_json"):
+                try:
+                    d["simulation"] = _json.loads(d["simulation_json"])
+                except Exception:
+                    d["simulation"] = None
+            else:
+                d["simulation"] = None
             # status_label 변환
             d["status_label"] = STATUS_LABELS.get(d.get("status", "new"), d.get("status"))
             # 너무 무거운 컬럼 제거
             d.pop("raw_text", None)
             d.pop("extra_json", None)
             d.pop("sales_json", None)
+            d.pop("simulation_json", None)
             d.pop("applied_skus_json", None)
             items.append(d)
         s = stats(conn)

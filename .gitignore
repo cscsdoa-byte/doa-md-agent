@@ -32,3 +32,6 @@ crawler/storage/*.json
 *.log
 .DS_Store
 Thumbs.db
+
+# Claude Code 작업 인계 파일
+.claude-handoff.md

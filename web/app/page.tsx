@@ -14,7 +14,7 @@ export default async function Home() {
   const [payload, channels, channelPL] = await Promise.all([
     loadEvents(),
     loadChannels(),
-    fetchChannelPL().catch(() => ({ totals: null, range: null, channels: [] })),
+    fetchChannelPL().catch(() => ({ totals: null, prev_totals: null, range: null, channels: [] })),
   ]);
   const generatedAt = payload.generated_at?.slice(0, 16).replace("T", " ") ?? "";
   const settleBase = process.env.NEXT_PUBLIC_SETTLE_BASE_URL || "http://3.37.214.243";
@@ -119,12 +119,13 @@ export default async function Home() {
           </div>
         </header>
 
-        <SeasonBanner />
+        <SeasonBanner events={payload.events} />
 
         <ConflictBanner events={payload.events} />
 
         <ChannelPL
           totals={channelPL.totals}
+          prevTotals={channelPL.prev_totals}
           range={channelPL.range}
           channels={channelPL.channels}
           events={payload.events}

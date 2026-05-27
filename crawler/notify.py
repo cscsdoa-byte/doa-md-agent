@@ -130,6 +130,34 @@ def detect_cannibal_conflicts() -> list[dict]:
     return pairs
 
 
+def detect_retro_pending() -> list[dict]:
+    """closed + sale_end 가 오늘 ~ 14일 전 사이 + ops_retro_note 비어있는 행사.
+
+    회고 미작성 알림 대상 (page.tsx 의 retroPendingCount 와 동일 로직).
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT dedup_id, title, sale_end, ops_retro_note
+               FROM events
+               WHERE status = 'closed'
+                 AND sale_end IS NOT NULL"""
+        ).fetchall()
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff = today - timedelta(days=14)
+    out: list[dict] = []
+    for r in rows:
+        try:
+            end = datetime.fromisoformat(r["sale_end"][:10])
+        except Exception:
+            continue
+        if end > today or end < cutoff:
+            continue
+        if (r["ops_retro_note"] or "").strip():
+            continue
+        out.append({"short": r["dedup_id"][:6], "title": r["title"], "sale_end": r["sale_end"]})
+    return out
+
+
 def check_settle_token_expiry() -> dict | None:
     """SETTLE_API_TOKEN JWT exp 디코드 → 만료 임박/만료 상태 반환.
 
@@ -321,6 +349,16 @@ def build_message() -> tuple[str, list[dict]]:
             })
         if len(cannibals) > 10:
             lines.append(f"  …외 {len(cannibals) - 10}쌍")
+
+    # 회고 미작성 — closed + sale_end 14일 이내 + ops_retro_note 비어있음
+    retro_pending = detect_retro_pending()
+    if retro_pending:
+        lines.append(f"\n📝 *회고 미작성 — {len(retro_pending)}건* (종료 14일 이내)")
+        for r in retro_pending[:5]:
+            lines.append(f"• [{r['short']}] {r['title'][:50]} (종료 {r['sale_end'][:10]})")
+            notified.append({"id": f"retro:{r['short']}", "kind": "retro"})
+        if len(retro_pending) > 5:
+            lines.append(f"  …외 {len(retro_pending) - 5}건")
 
     # 정산자동화웹 토큰 만료 임박
     token_status = check_settle_token_expiry()

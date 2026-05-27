@@ -69,10 +69,15 @@ channels:
       login: https://partner.tossshopping.com/login
       list:  https://partner.tossshopping.com/notice
     settle_channels: ["토스쇼핑"]
-    # 사용자 시뮬레이터 기준 8% 적용.
-    # 회의록(2026-05-20) 참고: 기존 정산 8% + 결제 3% = 11%, 인상 후엔 12% + 3% = 15%.
-    # 면제 조건: ① 정산탭 오늘출발 → 정산 면제 (실효 3%) ② 광고 구매건 → 정산 면제.
-    default_fee_rate: 0.08    # 사용자 시뮬레이터 기준 (8%)
+    # 토스 수수료 구조 (jeongsan-patches/README.md 확정):
+    #   - 결제 수수료 2.4% — 모든 주문 무조건
+    #   - 판매(정산) 수수료 8% (인상 후 12%) — 면제 조건 있음:
+    #       ① 정산탭 "오늘출발" → 정산 면제 (실효 2.4%)
+    #       ② 광고전환건 → 정산 면제 (실효 2.4%)
+    #       그 외     → 결제+정산 = 10.4% (인상 후 14.4%)
+    # 정산자동화웹의 토스 fee 는 CSV 업로드 전엔 0 (이지어드민이 토스 fee 안 채움).
+    # → 토스 카드 표시 시 fee/sale < 0.02 면 "CSV 미반영"으로 보고 2.4% 자동 보정.
+    default_fee_rate: 0.08    # 시뮬레이터 fallback (정산 수수료만)
     poll_interval_minutes: 90
 
   - key: esmplus

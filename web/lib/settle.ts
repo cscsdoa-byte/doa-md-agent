@@ -216,6 +216,11 @@ export interface ChannelAgg {
   orders: number;
   qty: number;
   margin_rate: number;
+  /** 매출 비중 기반으로 안분한 광고비 추정치 (정산자동화웹이 채널별 분할 안 해줘서 근사) */
+  ad_cost_est: number;
+  /** 영업이익 - 안분광고비 추정 순이익 */
+  net_profit_est: number;
+  net_margin_est: number;
 }
 
 /** 조선팔도떡집의 이번 달 채널별 PL — summary 1회 호출 후 breakdown 집계.
@@ -223,6 +228,7 @@ export interface ChannelAgg {
  *  광고비는 전체 totals 에서만 받음. */
 export async function fetchChannelPL(): Promise<{
   totals: DashboardTotals | null;
+  prev_totals: DashboardTotals | null;
   range: { start: string; end: string } | null;
   channels: ChannelAgg[];
 }> {
@@ -232,11 +238,15 @@ export async function fetchChannelPL(): Promise<{
   const today = `${y}-${m}-${String(now.getDate()).padStart(2, "0")}`;
   const start = `${y}-${m}-01`;
   const data = await fetchSummary({ start, end: today, brand: "조선팔도떡집" });
-  if (!data) return { totals: null, range: null, channels: [] };
+  if (!data) return { totals: null, prev_totals: null, range: null, channels: [] };
   const by: Record<string, ChannelAgg> = {};
   for (const row of data.breakdown ?? []) {
     const ch = row.channel || "?";
-    if (!by[ch]) by[ch] = { channel: ch, sale: 0, cost: 0, fee: 0, operating_profit: 0, orders: 0, qty: 0, margin_rate: 0 };
+    if (!by[ch]) by[ch] = {
+      channel: ch, sale: 0, cost: 0, fee: 0, operating_profit: 0,
+      orders: 0, qty: 0, margin_rate: 0,
+      ad_cost_est: 0, net_profit_est: 0, net_margin_est: 0,
+    };
     by[ch].sale += row.sale ?? 0;
     by[ch].cost += row.cost ?? 0;
     by[ch].fee += row.fee ?? 0;
@@ -244,9 +254,23 @@ export async function fetchChannelPL(): Promise<{
     by[ch].orders += row.orders ?? 0;
     by[ch].qty += row.qty ?? 0;
   }
+  // 광고비 안분 — 채널 매출 비중으로 totals.ad_cost 를 쪼개기 (근사치).
+  // 정산자동화웹이 채널별 광고비를 제공하지 않아 사용자 의사결정용 추정값으로만 표기.
+  const totalAd = data.totals?.ad_cost ?? 0;
+  const grandSale = Object.values(by).reduce((s, c) => s + c.sale, 0);
   const channels = Object.values(by)
     .filter((c) => c.sale > 0)
-    .map((c) => ({ ...c, margin_rate: c.sale ? (c.operating_profit / c.sale) * 100 : 0 }))
+    .map((c) => {
+      const ad_cost_est = grandSale > 0 ? (c.sale / grandSale) * totalAd : 0;
+      const net_profit_est = c.operating_profit - ad_cost_est;
+      return {
+        ...c,
+        margin_rate: c.sale ? (c.operating_profit / c.sale) * 100 : 0,
+        ad_cost_est,
+        net_profit_est,
+        net_margin_est: c.sale ? (net_profit_est / c.sale) * 100 : 0,
+      };
+    })
     .sort((a, b) => b.sale - a.sale);
-  return { totals: data.totals, range: data.range, channels };
+  return { totals: data.totals, prev_totals: data.prev_totals ?? null, range: data.range, channels };
 }

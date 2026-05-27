@@ -88,7 +88,15 @@ export default function Calendar({
     return new Date(t.getFullYear(), t.getMonth(), 1);
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [doaOnly, setDoaOnly] = useState(true);
+  const [doaOnly, setDoaOnly] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const v = window.localStorage.getItem("md.calendar.doaOnly");
+    return v === null ? true : v === "1";
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("md.calendar.doaOnly", doaOnly ? "1" : "0");
+  }, [doaOnly]);
 
   // URL ?selected=<short_id 또는 dedup_id> 으로 들어오면 자동 선택 + 해당 행사 월로 이동
   const searchParams = useSearchParams();
@@ -557,6 +565,24 @@ export default function Calendar({
     }
   }
 
+  // 라이브 중 행사가 있을 때 60초마다 페이지 새로고침 — md-poll.bat 이 sales-all + dump-json 으로
+  // events.json 을 갱신해두면, 이 폴링이 그 결과를 끌어온다.
+  // 라이브 행사 없을 땐 폴링 안 함 (불필요 비용 회피).
+  useEffect(() => {
+    const hasLive = events.some(
+      (e) =>
+        e.status === "running" ||
+        (e.sale_start && e.sale_end &&
+          new Date(e.sale_start) <= new Date() && new Date(e.sale_end) >= new Date() &&
+          e.status !== "closed" && e.status !== "skip"),
+    );
+    if (!hasLive) return;
+    const t = setInterval(() => {
+      startTransition(() => router.refresh());
+    }, 60_000);
+    return () => clearInterval(t);
+  }, [events, router]);
+
   // 라이브 중 = status=running 이거나 (sale_start~sale_end 가 오늘 포함 + 종료 아닌 상태)
   const liveEvents = useMemo(() => {
     const todayK = fmtKey(new Date());
@@ -876,7 +902,12 @@ export default function Calendar({
 
         {liveEvents.length > 0 && (
           <div className="mb-4 bg-pink-50 border-l-4 border-pink-500 p-3 rounded">
-            <div className="text-sm font-bold text-pink-900">🔴 라이브 중 ({liveEvents.length}건)</div>
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-bold text-pink-900">🔴 라이브 중 ({liveEvents.length}건)</div>
+              <div className="text-[10px] text-pink-700" title="매 60초 자동 새로고침 — md-poll.bat 이 백엔드에서 sales-all 돌릴 때 반영됨">
+                🔄 1분 자동 갱신
+              </div>
+            </div>
             <ul className="mt-1.5 space-y-1">
               {liveEvents.map((e) => {
                 const th = themeOf(e.channel_key);

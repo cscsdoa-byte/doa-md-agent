@@ -85,6 +85,50 @@ curl -X POST http://localhost:8000/api/upload/toss-settlement \
 
 이전엔 0원 → 이제는 매출의 약 6% 수준으로 정확하게 잡혀야 함.
 
+---
+
+## Patch 2: 토스 fee 미반영 자동 보정 (2026-05-27 추가)
+
+CSV 업로드 안 한 토스 주문(fee=0)에 worst-case 수수료 10.4% (결제 2.4% + 정산 8%) 자동 입력.
+CSV 업로드 후 toss_settlement.py 가 실 fee 로 덮어씀 (면제 반영된 정확값).
+
+**파일:** `routers/toss_fee_estimate.py` (services 로 분류해도 됨, 단순 함수)
+
+### 적용 (서버에서)
+
+```bash
+cp ~/doa-md-agent/jeongsan-patches/routers/toss_fee_estimate.py \
+   /home/ubuntu/jeongsan/api/app/services/
+```
+
+### 이지어드민 import 후 자동 호출 등록
+
+`/home/ubuntu/jeongsan/api/app/routers/upload.py` 또는 이지어드민 import 끝 부분에서:
+
+```python
+from ..services.toss_fee_estimate import apply_toss_fee_estimate
+
+# 이지어드민 .xls import 끝나고 db.commit() 직후:
+report = apply_toss_fee_estimate(db)
+print(f"[toss fee estimate] patched {report['orders_patched']} orders, "
+      f"total estimated fee {report['total_fee_estimated']:,.0f}원")
+```
+
+또는 별도 endpoint 로 노출 (수동 트리거):
+
+```python
+# routers/upload.py 에:
+@router.post("/admin/apply-toss-fee-estimate")
+def apply_toss_estimate(db: Session = Depends(get_db), ...):
+    return apply_toss_fee_estimate(db)
+```
+
+### 효과
+
+- 이지어드민 import 직후 토스 영업이익이 worst-case 로 잡힘 (과대 계상 X)
+- 토스 CSV 업로드 후 실 fee 로 덮어쓰면서 면제 공제분만큼 영업이익 상승 = "면제 공제(+)" 효과
+- DB 스키마 변경 없음 (orders.fee 컬럼만 UPDATE)
+
 ## 한계
 
 - 주문번호 매칭 실패 케이스 (`not_matched_sample`) 가 많으면 → 토스 csv 의

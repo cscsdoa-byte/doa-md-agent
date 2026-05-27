@@ -100,6 +100,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "md_owner_name" not in cols:
         # 행사 담당 MD (자유 입력). channel_key 기반 contacts 매핑보다 우선.
         conn.execute("ALTER TABLE events ADD COLUMN md_owner_name TEXT")
+    if "simulation_json" not in cols:
+        # 마진 시뮬레이터 결과 스냅샷. 종료 후 실제 sales_json 과 비교용.
+        # { expected_sale, expected_op, expected_margin, sku_breakdown: [...], saved_at }
+        conn.execute("ALTER TABLE events ADD COLUMN simulation_json TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_status ON events(status)")
 
     # MD 연락처 마스터 — 채널별 담당 MD 정보. 한 번 입력해두면 다음 행사 잡을 때 또 씀.
@@ -757,6 +761,22 @@ def update_event_fields(
         f"UPDATE events SET {', '.join(fields)} WHERE dedup_id = ?",
         params,
     )
+
+
+def set_event_simulation(
+    conn: sqlite3.Connection, dedup_id: str, simulation: dict | None
+) -> None:
+    """마진 시뮬레이터 스냅샷 저장. 종료 후 sales_json 과 비교에 사용."""
+    payload = json.dumps(simulation, ensure_ascii=False, default=str) if simulation else None
+    conn.execute(
+        "UPDATE events SET simulation_json = ? WHERE dedup_id = ?",
+        (payload, dedup_id),
+    )
+    if simulation and simulation.get("expected_sale") is not None:
+        s = int(simulation.get("expected_sale", 0) or 0)
+        insert_activity(conn, dedup_id, "simulation", f"시뮬 저장: 예상 매출 {s:,}원")
+    elif simulation is None:
+        insert_activity(conn, dedup_id, "simulation", "시뮬 초기화")
 
 
 def set_event_sales(
