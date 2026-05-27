@@ -770,10 +770,11 @@ def cmd_channel_meta(
     priority: str | None,
     note: str | None,
     url: str | None,
+    fee: str | None = None,
 ) -> int:
-    """채널 마스터 운영 메타필드 (status/priority/note/url) 업데이트."""
+    """채널 마스터 운영 메타필드 (status/priority/note/url/default_fee_rate) 업데이트."""
     with connect() as conn:
-        ok = update_channel_master_meta(conn, settle_name, status, priority, note, url)
+        ok = update_channel_master_meta(conn, settle_name, status, priority, note, url, fee)
     if ok:
         print(f"✓ 채널 메타 업데이트: {settle_name}")
         return 0
@@ -1191,12 +1192,13 @@ def main() -> None:
 
     pchl = sp.add_parser("channel-list", help="채널 마스터 목록")
 
-    pchm = sp.add_parser("channel-meta", help="채널 메타 업데이트 (status/priority/note/url)")
+    pchm = sp.add_parser("channel-meta", help="채널 메타 업데이트 (status/priority/note/url/fee)")
     pchm.add_argument("settle_name")
     pchm.add_argument("--status", default=None, help="활성/검토중/보류/제외 등")
     pchm.add_argument("--priority", default=None, help="높음/보통/낮음")
     pchm.add_argument("--note", default=None)
     pchm.add_argument("--url", default=None, help="입점/관리 URL")
+    pchm.add_argument("--fee", default=None, help="기본 수수료율 (0.0~1.0). 빈 문자열은 NULL.")
 
     pcham = sp.add_parser("channel-add-manual", help="수동 채널 추가 (정산자동화웹에 없는 채널)")
     pcham.add_argument("settle_name")
@@ -1380,7 +1382,7 @@ def main() -> None:
     elif args.cmd == "channel-list":
         sys.exit(cmd_channel_list())
     elif args.cmd == "channel-meta":
-        sys.exit(cmd_channel_meta(args.settle_name, args.status, args.priority, args.note, args.url))
+        sys.exit(cmd_channel_meta(args.settle_name, args.status, args.priority, args.note, args.url, args.fee))
     elif args.cmd == "channel-add-manual":
         sys.exit(cmd_channel_add_manual(
             args.settle_name, args.display_name, not args.info,

@@ -63,7 +63,8 @@ export default async function VendorsPage() {
 
         <div className="mt-4 text-[11px] text-slate-500 space-y-0.5">
           <div>※ <b>출처</b>: <code>settle</code>=정산자동화웹 동기화 · <code>yaml</code>=어댑터 정의 · <code>manual</code>=수동 추가 (NS홈쇼핑 등)</div>
-          <div>※ 상태/우선순위/메모/URL 은 클릭/포커스해서 직접 편집 — 빠지면 자동 저장됩니다</div>
+          <div>※ <b>수수료/상태/우선순위/메모/URL</b> 은 클릭/포커스해서 직접 편집 — 빠지면 자동 저장됩니다</div>
+          <div>※ <b>수수료율</b> 채우면 메인 보드의 영업이익(보수)·면제 공제(+) 계산이 정확해집니다 (홈쇼핑은 30~38% 일반)</div>
           <div>※ 정산자동화웹에서 가져온 채널 동기화: 서버에서 <code className="bg-slate-100 px-1 rounded">uv run python -m crawler.run sync-channels</code></div>
         </div>
       </div>

@@ -129,6 +129,7 @@ export default async function Home() {
           range={channelPL.range}
           channels={channelPL.channels}
           events={payload.events}
+          channelsMaster={payload.channels_master}
         />
 
         <MdPL events={payload.events} />

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ChannelAgg, DashboardTotals } from "@/lib/settle";
-import type { EventItem } from "@/lib/data";
+import type { ChannelMaster, EventItem } from "@/lib/data";
 import { themeOf } from "@/lib/channelTheme";
 import RetryAttachButton from "./RetryAttachButton";
 
@@ -20,26 +20,18 @@ const KEY_TO_SETTLE_CHANNEL: Record<string, string> = {
   shinsegae_homeshopping: "신세계홈쇼핑",
 };
 
-// 정산자동화웹 채널명 → 시뮬레이터 기준 worst-case 수수료율 (결제 + 정산 합산, 면제 0 가정).
-// 토스만 면제 조건 있음 — exempt_credit 으로 별도 공제 표시.
-// 다른 채널은 정산자동화웹이 fee 정확히 채워주면 보정 무의미하지만, 미반영시 보수 표시용.
-const EXPECTED_FEE_RATE: Record<string, number> = {
+// fallback 수수료율 — channels_master 에 default_fee_rate 안 채워졌을 때 사용.
+// 정확한 값은 /vendors 페이지에서 사용자가 직접 입력 (DB 가 source-of-truth).
+// 홈쇼핑은 일반 시장치 15~38% 범위 — 도아 계약 조건 확인 후 /vendors 에서 입력.
+const FEE_RATE_FALLBACK: Record<string, number> = {
   스마트스토어: 0.0273,
   스스: 0.0273,
   쿠팡: 0.106,
   "11번가": 0.13,
-  토스쇼핑: 0.104,  // 결제 2.4% + 정산 8%
+  토스쇼핑: 0.104,
   지마켓: 0.13,
   옥션: 0.13,
-  쇼핑엔티: 0.15,
   카카오: 0.033,
-  // 홈쇼핑 6개 — 보수적 15% (실제 정산 데이터 들어오면 채널별로 조정)
-  K쇼핑: 0.15,
-  롯데홈쇼핑: 0.15,
-  홈쇼핑모아: 0.15,
-  공영홈쇼핑: 0.15,
-  CJ온스타일: 0.15,
-  신세계홈쇼핑: 0.15,
 };
 
 interface Props {
@@ -48,6 +40,7 @@ interface Props {
   range: { start: string; end: string } | null;
   channels: ChannelAgg[];
   events: EventItem[];
+  channelsMaster?: ChannelMaster[];
 }
 
 function delta(curr: number, prev: number | undefined): { pct: number | null; arrow: string; color: string } {
@@ -108,7 +101,16 @@ const CHANNEL_TO_KEY: Record<string, string> = {
   전화주문: "phone",
 };
 
-export default function ChannelPL({ totals, prevTotals, range, channels, events }: Props) {
+export default function ChannelPL({ totals, prevTotals, range, channels, events, channelsMaster }: Props) {
+  // 채널별 fee_rate 매핑 — channels_master 의 default_fee_rate 우선, 없으면 fallback.
+  const feeRateByChannel: Record<string, number> = { ...FEE_RATE_FALLBACK };
+  if (channelsMaster) {
+    for (const cm of channelsMaster) {
+      if (cm.default_fee_rate !== null && cm.default_fee_rate !== undefined) {
+        feeRateByChannel[cm.settle_name] = cm.default_fee_rate;
+      }
+    }
+  }
   if (!totals && channels.length === 0) {
     return (
       <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded px-3 py-2">
@@ -427,7 +429,7 @@ export default function ChannelPL({ totals, prevTotals, range, channels, events 
               //   - 기본 표시 = worst-case 영업이익 (시뮬레이터 기준 수수료율 100% 부과 가정)
               //   - 면제 공제(+) = expected_fee - real_fee (토스 면제 조건 있을 때만 의미있음)
               //   - 정산자동화웹 fee 가 expected 와 거의 같으면 (이미 정확) 보정 표시 생략
-              const expectedRate = EXPECTED_FEE_RATE[c.channel] ?? 0;
+              const expectedRate = feeRateByChannel[c.channel] ?? 0;
               const expectedFee = c.sale * expectedRate;
               const realFee = c.fee;
               const worstOp = c.operating_profit - (expectedFee - realFee);

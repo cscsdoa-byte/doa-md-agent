@@ -22,6 +22,7 @@ interface PatchBody {
   priority?: string;
   note?: string;
   url?: string;
+  default_fee_rate?: number | null;
 }
 
 export async function POST(request: NextRequest) {
@@ -56,6 +57,9 @@ export async function PATCH(request: NextRequest) {
   if (body.priority !== undefined) args.push("--priority", body.priority);
   if (body.note !== undefined) args.push("--note", body.note);
   if (body.url !== undefined) args.push("--url", body.url);
+  if (body.default_fee_rate !== undefined) {
+    args.push("--fee", body.default_fee_rate === null ? "" : String(body.default_fee_rate));
+  }
   if (args.length === 2) {
     return NextResponse.json({ error: "변경 필드 없음" }, { status: 400 });
   }

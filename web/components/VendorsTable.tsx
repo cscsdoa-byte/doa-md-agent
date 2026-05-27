@@ -43,7 +43,7 @@ export default function VendorsTable({ channels, settleChannels, yamlChannels, e
   const masterYamlKeys = new Set(channels.map((c) => c.yaml_key).filter(Boolean));
   const yamlMissingFromMaster = yamlChannels.filter((y) => !masterYamlKeys.has(y.key));
 
-  async function updateMeta(name: string, patch: Record<string, string>) {
+  async function updateMeta(name: string, patch: Record<string, string | number | null>) {
     setBusy(name);
     try {
       const r = await fetch(apiUrl(`/api/channels?name=${encodeURIComponent(name)}`), {
@@ -160,7 +160,27 @@ export default function VendorsTable({ channels, settleChannels, yamlChannels, e
                     {c.is_sales ? "💰 판매" : "📰 정보"}
                   </td>
                   <td className="px-2 py-2 text-xs whitespace-nowrap">
-                    {c.default_fee_rate !== null ? `${(c.default_fee_rate * 100).toFixed(1)}%` : "-"}
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="100"
+                        defaultValue={c.default_fee_rate !== null ? (c.default_fee_rate * 100).toFixed(1) : ""}
+                        placeholder="-"
+                        disabled={busy === c.settle_name}
+                        onBlur={(e) => {
+                          const raw = e.target.value.trim();
+                          const newVal = raw === "" ? null : parseFloat(raw) / 100;
+                          const cur = c.default_fee_rate;
+                          if (newVal === cur) return;
+                          if (newVal !== null && (isNaN(newVal) || newVal < 0 || newVal > 1)) return;
+                          updateMeta(c.settle_name, { default_fee_rate: newVal });
+                        }}
+                        className="w-14 text-xs border rounded px-1 py-0.5 text-right"
+                      />
+                      <span className="text-slate-400">%</span>
+                    </div>
                   </td>
                   <td className="px-2 py-2">
                     <select

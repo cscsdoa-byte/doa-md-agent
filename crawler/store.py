@@ -698,10 +698,12 @@ def update_channel_master_meta(
     priority: str | None = None,
     note: str | None = None,
     url: str | None = None,
+    default_fee_rate: float | None | str = None,
 ) -> bool:
     """채널 마스터의 운영 메타필드만 업데이트 (sync 와 충돌 안 함).
 
     None = 변경 안 함, 빈 문자열 = NULL 클리어.
+    default_fee_rate: float (0.0~1.0), "" 또는 "null" 은 NULL 클리어.
     """
     fields = []
     params: list = []
@@ -713,6 +715,16 @@ def update_channel_master_meta(
         else:
             fields.append(f"{col} = ?")
             params.append(val)
+    if default_fee_rate is not None:
+        if default_fee_rate == "" or default_fee_rate == "null":
+            fields.append("default_fee_rate = NULL")
+        else:
+            try:
+                v = float(default_fee_rate)
+                fields.append("default_fee_rate = ?")
+                params.append(v)
+            except (TypeError, ValueError):
+                pass
     if not fields:
         return False
     params.append(settle_name)
