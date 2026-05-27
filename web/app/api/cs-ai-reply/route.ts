@@ -25,6 +25,18 @@ interface SimilarReply {
   count: number;
 }
 
+interface ProductKb {
+  summary?: string;
+  features?: string[];
+  storage_shelf_life?: string;
+  packaging_options?: string[];
+  pricing_hints?: string[];
+  common_concerns?: string[];
+  pair_recommendations?: string[];
+  caveats?: string[];
+  frequent_phrases?: string[];
+}
+
 interface Analysis {
   intent: string;
   sentiment: string;
@@ -34,6 +46,7 @@ interface Analysis {
   };
   similar_replies: SimilarReply[];
   product_knowledge?: Record<string, { reply: string; count: number }[]>;
+  product_kb?: Record<string, ProductKb>;
 }
 
 async function analyzeMessage(message: string): Promise<Analysis | null> {
@@ -149,15 +162,36 @@ export async function POST(request: NextRequest) {
     if (ext.dates.length) extractedLines.push(`날짜: ${ext.dates.join(", ")}`);
   }
 
-  // 상품 지식 — 추출된 상품마다 관련 과거 답변 (상품 정보가 답변에 녹아있음)
+  // 상품 지식 — KB 우선 (Claude 가 cs 답변 수십건 분석한 정제 데이터) + 과거 답변 N개
   let productKnowledgeBlock = "";
+  const kb = analysis?.product_kb;
   const pk = analysis?.product_knowledge;
-  if (pk && Object.keys(pk).length > 0) {
-    const lines: string[] = ["", "## 추출된 상품 관련 과거 답변 (상품 지식 — 가격/원재료/특징이 녹아있음)"];
-    for (const [product, replies] of Object.entries(pk)) {
+  const productNames = new Set<string>([
+    ...(kb ? Object.keys(kb) : []),
+    ...(pk ? Object.keys(pk) : []),
+  ]);
+  if (productNames.size > 0) {
+    const lines: string[] = ["", "## 추출된 상품 지식 (답변에 활용)"];
+    for (const product of productNames) {
       lines.push(`\n[상품: ${product}]`);
-      for (const r of replies) {
-        lines.push(`  - (${r.count}회 발신) ${r.reply}`);
+      const k = kb?.[product];
+      if (k) {
+        if (k.summary) lines.push(`  · 한 줄: ${k.summary}`);
+        if (k.features?.length) lines.push(`  · 특징: ${k.features.join(" / ")}`);
+        if (k.storage_shelf_life) lines.push(`  · 보관·유통: ${k.storage_shelf_life}`);
+        if (k.packaging_options?.length) lines.push(`  · 구성: ${k.packaging_options.join(" / ")}`);
+        if (k.pricing_hints?.length) lines.push(`  · 가격: ${k.pricing_hints.join(" / ")}`);
+        if (k.pair_recommendations?.length) lines.push(`  · 어울리는: ${k.pair_recommendations.join(" / ")}`);
+        if (k.caveats?.length) lines.push(`  · 주의: ${k.caveats.join(" / ")}`);
+        if (k.common_concerns?.length) lines.push(`  · 자주 묻는 점: ${k.common_concerns.join(" / ")}`);
+        if (k.frequent_phrases?.length) lines.push(`  · 회사 자주 쓰는 표현: ${k.frequent_phrases.join(" | ")}`);
+      }
+      const replies = pk?.[product];
+      if (replies && replies.length > 0) {
+        lines.push("  · 실제 답변 예시:");
+        for (const r of replies) {
+          lines.push(`    - (${r.count}회) ${r.reply.slice(0, 200)}`);
+        }
       }
     }
     productKnowledgeBlock = lines.join("\n");

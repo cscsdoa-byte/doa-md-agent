@@ -732,6 +732,31 @@ JOSEON_PRODUCTS = [
 ]
 
 
+def cs_product_all_replies(
+    conn: sqlite3.Connection, product: str, max_rows: int = 50, days: int = 90
+) -> list[str]:
+    """상품 관련 발신 답변 raw 리스트 (Claude 요약용, 시스템 제외)."""
+    from datetime import date, timedelta
+    start = (date.today() - timedelta(days=days)).isoformat()
+    rows = conn.execute(
+        """SELECT message FROM cs_messages
+           WHERE status = '발신'
+             AND date >= ?
+             AND message LIKE ?
+             AND length(message) BETWEEN 15 AND 500
+           ORDER BY date DESC
+           LIMIT ?""",
+        (start, f"%{product}%", max_rows),
+    ).fetchall()
+    out = []
+    for r in rows:
+        msg = (r["message"] or "").strip()
+        if not msg or _is_cs_system_msg(msg):
+            continue
+        out.append(_mask_pii(msg))
+    return out
+
+
 def cs_product_replies(
     conn: sqlite3.Connection, product: str, limit: int = 5, days: int = 90
 ) -> list[dict]:
@@ -886,8 +911,23 @@ def cs_analyze_message(
     # 4. 과거 답변 (톤 학습용 — 더 많이)
     similar = cs_find_similar_replies(conn, customer_message, limit=limit_replies)
 
-    # 5. 추출된 상품 각각의 관련 답변 (상품 지식)
+    # 5. 추출된 상품 각각의 관련 답변 (cs_messages 발신)
     product_knowledge = cs_product_knowledge(conn, products, per_product=3) if products else {}
+
+    # 6. 추출된 상품 각각의 KB (build-product-kb 로 만든 Claude 요약)
+    product_kb_data: dict = {}
+    if products:
+        from pathlib import Path
+        import json as _j
+        kb_path = Path(__file__).resolve().parent.parent / "data" / "product_kb.json"
+        if kb_path.exists():
+            try:
+                full_kb = _j.loads(kb_path.read_text(encoding="utf-8"))
+                for p in products:
+                    if p in full_kb:
+                        product_kb_data[p] = full_kb[p]
+            except Exception:
+                pass
 
     return {
         "intent": intent,
@@ -896,6 +936,7 @@ def cs_analyze_message(
         "extracted": extracted,
         "similar_replies": similar,
         "product_knowledge": product_knowledge,
+        "product_kb": product_kb_data,
     }
 
 

@@ -410,6 +410,115 @@ def cmd_cs_similar_replies(customer_message: str, limit: int = 5) -> int:
     return 0
 
 
+def cmd_build_product_kb(force: bool = False) -> int:
+    """조선팔도떡집 11종 상품 지식 베이스 자동 빌드.
+
+    각 상품마다 cs_messages 발신 답변 ~50건을 Claude 에게 보여주고 요약 받음.
+    결과를 data/product_kb.json 에 저장 → dump-json 에 포함되어 AI route 컨텍스트로 사용.
+
+    Claude API 11회 호출. ANTHROPIC_API_KEY 필요.
+    """
+    import os
+    import json as _j
+    import httpx
+    from pathlib import Path
+    from dotenv import load_dotenv
+    from .store import connect, JOSEON_PRODUCTS, cs_product_all_replies
+
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        print("ERROR: ANTHROPIC_API_KEY 미설정 — .env 확인", file=sys.stderr)
+        return 1
+
+    kb_path = Path(__file__).resolve().parent.parent / "data" / "product_kb.json"
+    existing: dict = {}
+    if kb_path.exists() and not force:
+        existing = _j.loads(kb_path.read_text(encoding="utf-8"))
+
+    SYSTEM = """당신은 조선팔도떡집 상품 데이터 분석가입니다.
+아래는 CS 상담사가 해당 상품에 대해 실제 고객에게 보낸 답변들입니다.
+이 답변들에서 추출할 수 있는 상품 정보를 JSON 으로 요약하세요.
+
+추출 항목:
+- summary: 상품 한 줄 설명 (회사가 고객에게 설명하는 방식)
+- features: 주요 특징 (식감/맛/원재료/제조법 등 답변에서 언급된 것들)
+- storage_shelf_life: 보관법·유통기한 (답변에 언급되면)
+- packaging_options: 구성·포장 단위 (답변에 언급되면)
+- pricing_hints: 가격 관련 언급 (할인·세트 등)
+- common_concerns: 고객이 자주 묻는 점·우려사항
+- pair_recommendations: 어울리는 차/음료/디저트 (답변에 언급되면)
+- caveats: 주의사항 (보관·해동·섭취)
+- frequent_phrases: 회사가 이 상품을 설명할 때 자주 쓰는 핵심 문구 3-5개
+
+각 항목은 답변에 명시된 내용만. 답변에 없는 정보는 빈 배열/null.
+JSON 외 텍스트 X."""
+
+    output: dict = dict(existing)
+    n_built = 0
+    n_skipped = 0
+    with connect() as conn:
+        for product in JOSEON_PRODUCTS:
+            if not force and product in existing:
+                print(f"  - {product}: skip (기존 KB 사용, --force 로 갱신)")
+                n_skipped += 1
+                continue
+            replies = cs_product_all_replies(conn, product, max_rows=40)
+            if not replies:
+                print(f"  - {product}: 답변 0건 → 스킵")
+                continue
+            joined = "\n---\n".join(replies[:40])
+            user_content = f"상품: {product}\n\nCS 답변 {len(replies)}건:\n\n{joined}"
+            print(f"  - {product}: 답변 {len(replies)}건 → Claude 호출 중…")
+            try:
+                resp = httpx.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": "claude-sonnet-4-6",
+                        "max_tokens": 2000,
+                        "temperature": 0.3,
+                        "system": SYSTEM,
+                        "messages": [{"role": "user", "content": user_content}],
+                    },
+                    timeout=120.0,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                raw = (data.get("content") or [{}])[0].get("text", "").strip()
+                # ```json ``` 처리
+                import re as _re
+                m = _re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", raw)
+                if m:
+                    raw = m.group(1)
+                parsed = _j.loads(raw)
+                output[product] = {
+                    "summary": parsed.get("summary"),
+                    "features": parsed.get("features") or [],
+                    "storage_shelf_life": parsed.get("storage_shelf_life"),
+                    "packaging_options": parsed.get("packaging_options") or [],
+                    "pricing_hints": parsed.get("pricing_hints") or [],
+                    "common_concerns": parsed.get("common_concerns") or [],
+                    "pair_recommendations": parsed.get("pair_recommendations") or [],
+                    "caveats": parsed.get("caveats") or [],
+                    "frequent_phrases": parsed.get("frequent_phrases") or [],
+                    "_reply_count": len(replies),
+                }
+                n_built += 1
+                print(f"    ✓ {parsed.get('summary', '(요약 없음)')[:60]}")
+            except Exception as e:
+                print(f"    ✗ 실패: {e}")
+
+    kb_path.parent.mkdir(parents=True, exist_ok=True)
+    kb_path.write_text(_j.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\n✓ product_kb.json 저장: {n_built}건 신규, {n_skipped}건 스킵 → 총 {len(output)}건")
+    return 0
+
+
 def cmd_cs_analyze(customer_message: str) -> int:
     """인입 메시지 종합 분석 (intent + sentiment + 추출정보 + 과거 답변) JSON."""
     import json as _j
@@ -653,6 +762,14 @@ def cmd_dump_json(out_path: str | None) -> int:
         cs_canned = cs_top_canned(conn, max_len=200, limit=10, days=30)
         cs_critical = cs_critical_issues(conn, days=7, limit_per=5)
         cs_repeat = cs_repeat_callers(conn, days=7, min_messages=5)
+        # 상품 지식 베이스 (build-product-kb CLI 로 한 번 빌드한 결과)
+        product_kb_path = Path(__file__).resolve().parent.parent / "data" / "product_kb.json"
+        product_kb = {}
+        if product_kb_path.exists():
+            try:
+                product_kb = _json.loads(product_kb_path.read_text(encoding="utf-8"))
+            except Exception:
+                product_kb = {}
     payload = {
         "generated_at": datetime.now().isoformat(),
         "total": s["total"],
@@ -668,6 +785,7 @@ def cmd_dump_json(out_path: str | None) -> int:
         "cs_canned": cs_canned,
         "cs_critical": cs_critical,
         "cs_repeat": cs_repeat,
+        "product_kb": product_kb,
     }
     target.write_text(_json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"✓ dump: {target}  ({len(items)}건)")
@@ -1364,6 +1482,9 @@ def main() -> None:
     pcsa = sp.add_parser("cs-analyze", help="인입 메시지 종합 분석 (intent+sentiment+추출+과거답변) JSON")
     pcsa.add_argument("customer_message")
 
+    pbkb = sp.add_parser("build-product-kb", help="조선팔도떡집 11종 상품 지식 베이스 빌드 (cs_messages + Claude 요약 → data/product_kb.json)")
+    pbkb.add_argument("--force", action="store_true", help="기존 KB 무시하고 전체 재빌드")
+
     psim = sp.add_parser("save-simulation", help="마진 시뮬레이터 입력값을 행사 simulation_json 에 스냅샷 저장")
     psim.add_argument("id_prefix")
     psim.add_argument("--price", type=int, required=True, help="정상가 (원)")
@@ -1431,6 +1552,8 @@ def main() -> None:
         sys.exit(cmd_cs_similar_replies(args.customer_message, args.limit))
     elif args.cmd == "cs-analyze":
         sys.exit(cmd_cs_analyze(args.customer_message))
+    elif args.cmd == "build-product-kb":
+        sys.exit(cmd_build_product_kb(args.force))
     elif args.cmd == "save-simulation":
         sys.exit(cmd_save_simulation(
             args.id_prefix, args.price, args.cost, args.ship,
