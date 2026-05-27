@@ -59,6 +59,18 @@ export interface EventItem {
   applied_skus: AppliedSku[];
   sales: { totals?: SalesTotals; expected_revenue?: number; channels_used?: string[]; matched?: unknown[] } | null;
   sales_synced_at: string | null;
+  simulation: {
+    price?: number;
+    cost?: number;
+    ship?: number;
+    commission_pct?: number;
+    discount_pct?: number;
+    extra?: number;
+    sale_price?: number;
+    expected_op?: number;
+    expected_margin?: number;
+    saved_at?: string;
+  } | null;
   source: string;
   ad_spend_manual: number | null;
   // 노션 컬럼 매핑

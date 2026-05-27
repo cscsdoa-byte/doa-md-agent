@@ -51,6 +51,16 @@ export default function Simulator() {
   const [skuError, setSkuError] = useState<string | null>(null);
   const [picked, setPicked] = useState<SkuHit | null>(null);
 
+  // 행사 컨텍스트 (URL ?event=<dedup_id> 로 진입 시) — 시뮬 결과를 행사에 저장 가능
+  const [eventId, setEventId] = useState<string | null>(null);
+  const [eventTitle, setEventTitle] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  useEffect(() => {
+    setEventId(params.get("event"));
+    setEventTitle(params.get("event_title"));
+  }, [params]);
+
   // URL 쿼리로 초기값 받기 (캘린더에서 진입 시)
   useEffect(() => {
     const num = (k: string, fallback: number) => {
@@ -160,8 +170,58 @@ export default function Simulator() {
     setSkuHits([]); // 결과 닫기
   }
 
+  async function saveToEvent() {
+    if (!eventId) return;
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const r = await fetch(apiUrl(`/api/event/${eventId}/simulation`), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ price, cost, ship, commission, discount, extra }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        setSaveMsg(`❌ ${j.error || "저장 실패"}`);
+      } else {
+        setSaveMsg(`✅ ${eventId.slice(0, 6)} 행사에 시뮬 스냅샷 저장됨`);
+      }
+    } catch (e) {
+      setSaveMsg(`❌ ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <>
+      {/* 행사 컨텍스트 (URL ?event=<id> 진입 시) — 시뮬 스냅샷 저장 */}
+      {eventId && (
+        <div className="bg-[#172554] border border-[#5c6ef8] rounded-xl p-4 mb-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-[11px] font-semibold text-[#a5b4fc] uppercase tracking-wider">
+                📌 행사 시뮬 모드
+              </div>
+              <div className="text-sm text-white font-semibold mt-1">
+                {eventTitle ? eventTitle : `행사 ${eventId.slice(0, 6)}`}
+              </div>
+              <div className="text-[11px] text-[#a5b4fc] mt-0.5">
+                현재 시뮬 결과를 이 행사에 스냅샷으로 저장 → 종료 후 실 매출과 자동 비교
+              </div>
+            </div>
+            <button
+              onClick={saveToEvent}
+              disabled={saving}
+              className="px-4 py-2 bg-[#5c6ef8] hover:bg-[#4a5cdf] disabled:opacity-50 rounded-lg text-sm font-bold text-white whitespace-nowrap"
+            >
+              {saving ? "⏳ 저장 중…" : "💾 이 행사에 시뮬 저장"}
+            </button>
+          </div>
+          {saveMsg && <div className="mt-2 text-xs text-[#a5b4fc]">{saveMsg}</div>}
+        </div>
+      )}
+
       {/* SKU 검색 (정산자동화웹) */}
       <div className="bg-[#1a1d27] border border-[#2a2d3a] rounded-xl p-4 mb-4">
         <div className="text-[11px] font-semibold text-[#888] uppercase tracking-wider mb-3">

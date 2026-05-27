@@ -1343,6 +1343,64 @@ export default function Calendar({
               </button>
             </div>
 
+            {/* 시뮬 vs 실적 비교 — simulation 저장된 행사만 */}
+            <div>
+              <label className="text-xs text-gray-600 block mb-1">🧮 마진 시뮬 vs 실적</label>
+              {selected.simulation ? (() => {
+                const sim = selected.simulation;
+                const expectedOp = sim.expected_op ?? 0;
+                const realSale = selected.sales?.totals?.sale ?? 0;
+                const realOp = selected.sales?.totals?.operating_profit ?? 0;
+                const realQty = selected.sales?.totals?.qty ?? 0;
+                const realMargin = realSale > 0 ? (realOp / realSale) * 100 : 0;
+                // 시뮬은 단위(1건) 기준 → 실 수량으로 곱해 비교
+                const expectedTotalOp = expectedOp * realQty;
+                const opDelta = realQty > 0 ? realOp - expectedTotalOp : null;
+                return (
+                  <div className="text-xs bg-indigo-50 border border-indigo-200 p-2 rounded space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">시뮬 단위 영업이익</span>
+                      <b>{expectedOp.toLocaleString()}원 ({sim.expected_margin ?? 0}%)</b>
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      행사가 {(sim.sale_price ?? 0).toLocaleString()}원 · 수수료 {sim.commission_pct}% · 할인 {sim.discount_pct}%
+                    </div>
+                    {realQty > 0 ? (
+                      <>
+                        <div className="border-t border-indigo-200 pt-1 mt-1 flex justify-between">
+                          <span className="text-slate-600">실 영업이익 ({realQty}건)</span>
+                          <b>{Math.round(realOp).toLocaleString()}원 ({realMargin.toFixed(1)}%)</b>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-600">예상 합계</span>
+                          <span>{Math.round(expectedTotalOp).toLocaleString()}원</span>
+                        </div>
+                        {opDelta !== null && (
+                          <div className={`flex justify-between font-bold ${opDelta >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                            <span>차이</span>
+                            <span>{opDelta >= 0 ? "▲ " : "▼ "}{Math.abs(Math.round(opDelta)).toLocaleString()}원</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-[10px] text-slate-500 italic">실 매출 매칭 후 비교 가능</div>
+                    )}
+                    {sim.saved_at && (
+                      <div className="text-[10px] text-slate-400 mt-1">시뮬 저장: {sim.saved_at.slice(0, 16).replace("T", " ")}</div>
+                    )}
+                  </div>
+                );
+              })() : (
+                <div className="text-xs text-gray-400 italic mb-1">시뮬 스냅샷 없음</div>
+              )}
+              <Link
+                href={`/simulator?event=${selected.dedup_id.slice(0, 16)}&event_title=${encodeURIComponent(selected.title)}${selected.discount_rate ? `&discount=${selected.discount_rate * 100}` : ""}`}
+                className="block w-full mt-1 text-center text-xs px-2 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+              >
+                🧮 {selected.simulation ? "시뮬 다시 검토" : "시뮬레이터로 검토 (입력 후 저장)"}
+              </Link>
+            </div>
+
             {/* 일별 매출 (진행기간 기준 채널·브랜드 합계) */}
             {selected.sale_start && selected.sale_end && (
               <div>

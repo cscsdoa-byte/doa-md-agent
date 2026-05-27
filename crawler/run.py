@@ -400,6 +400,58 @@ def cmd_sales(id_prefix: str, override_channels: list[str] | None, no_filter: bo
     return 0
 
 
+def cmd_save_simulation(
+    id_prefix: str,
+    price: int,
+    cost: int,
+    ship: int,
+    commission: float,
+    discount: float,
+    extra: int,
+) -> int:
+    """마진 시뮬레이터 입력값을 행사 simulation_json 에 스냅샷 저장.
+
+    저장값:
+      - 입력 그대로 (price/cost/ship/commission_pct/discount_pct/extra)
+      - 계산값 (sale_price=price*(1-d), expected_op, expected_margin)
+      - 단가 기준이므로 expected_sale 은 명시 안 하고 단위 영업이익만 (qty 모름)
+    """
+    from .store import connect, resolve_event, set_event_simulation
+    from datetime import datetime as _dt
+
+    sale_price = price * (1 - discount / 100)
+    commission_amt = sale_price * (commission / 100)
+    total_cost = cost + ship + extra
+    expected_op = sale_price - commission_amt - total_cost
+    expected_margin = (expected_op / sale_price * 100) if sale_price > 0 else 0
+
+    snapshot = {
+        "price": price,
+        "cost": cost,
+        "ship": ship,
+        "commission_pct": commission,
+        "discount_pct": discount,
+        "extra": extra,
+        "sale_price": round(sale_price),
+        "commission_amt": round(commission_amt),
+        "total_cost": total_cost,
+        "expected_op": round(expected_op),
+        "expected_margin": round(expected_margin, 1),
+        "saved_at": _dt.now().isoformat(),
+    }
+
+    with connect() as conn:
+        try:
+            evt = resolve_event(conn, id_prefix)
+        except LookupError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        set_event_simulation(conn, evt["dedup_id"], snapshot)
+
+    print(f"✓ {evt['dedup_id'][:6]} 시뮬 저장 — 단위 영업이익 {snapshot['expected_op']:,}원 ({snapshot['expected_margin']}%)")
+    return 0
+
+
 def cmd_attach_channel_totals(
     id_prefix: str,
     channel_name: str,
@@ -1212,6 +1264,15 @@ def main() -> None:
     pie = sp.add_parser("infer-event-type", help="event_type 비어있는 행사 일괄 자동 추론 (제목/카테고리 prefix 기반)")
     pie.add_argument("--all", action="store_true", help="이미 채워진 event_type 도 덮어쓰기 (기본은 NULL 인 것만)")
 
+    psim = sp.add_parser("save-simulation", help="마진 시뮬레이터 입력값을 행사 simulation_json 에 스냅샷 저장")
+    psim.add_argument("id_prefix")
+    psim.add_argument("--price", type=int, required=True, help="정상가 (원)")
+    psim.add_argument("--cost", type=int, required=True, help="단가 원가")
+    psim.add_argument("--ship", type=int, required=True, help="택배비")
+    psim.add_argument("--commission", type=float, required=True, help="수수료율 % (예: 10.6)")
+    psim.add_argument("--discount", type=float, required=True, help="할인율 % (예: 10)")
+    psim.add_argument("--extra", type=int, default=0, help="기타 비용 (전단지 등)")
+
     patt = sp.add_parser("attach-channel-totals", help="행사 기간 채널 전체 매출을 sales_json 에 attach (SKU 매칭 생략)")
     patt.add_argument("id_prefix")
     patt.add_argument("--channel", required=True, help="정산자동화웹 채널명 (예: 쇼핑엔티)")
@@ -1260,6 +1321,11 @@ def main() -> None:
         sys.exit(cmd_sales_all())
     elif args.cmd == "attach-channel-totals":
         sys.exit(cmd_attach_channel_totals(args.id_prefix, args.channel, args.brand, args.close))
+    elif args.cmd == "save-simulation":
+        sys.exit(cmd_save_simulation(
+            args.id_prefix, args.price, args.cost, args.ship,
+            args.commission, args.discount, args.extra,
+        ))
     elif args.cmd == "add-event":
         sys.exit(cmd_add_event(
             args.channel_key, args.title, args.deadline, args.url, args.memo, args.category,
