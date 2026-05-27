@@ -723,10 +723,74 @@ def cs_critical_issues(
     return out
 
 
+# 조선팔도떡집 핵심 상품 키워드 (cs_analyze_message + cs_product_replies 에서 사용)
+JOSEON_PRODUCTS = [
+    "두쫀모", "두바이쫀득", "두쫀쿠",
+    "쑥콩버무리", "쑥콩설기", "쑥버무리",
+    "밤설기", "서리태설기",
+    "딸기모찌", "비타베리", "오트메딘",
+]
+
+
+def cs_product_replies(
+    conn: sqlite3.Connection, product: str, limit: int = 5, days: int = 90
+) -> list[dict]:
+    """특정 상품 관련 발신 답변 (상품 지식 추출).
+
+    같은 상품에 대해 자주 쓰는 정보 — 가격/원재료/보관법/특징 등이 답변에 녹아있음.
+    """
+    from datetime import date, timedelta
+    import re as _re
+    from collections import Counter
+
+    start = (date.today() - timedelta(days=days)).isoformat()
+    rows = conn.execute(
+        """SELECT message FROM cs_messages
+           WHERE status = '발신'
+             AND date >= ?
+             AND message LIKE ?
+             AND length(message) BETWEEN 15 AND 400""",
+        (start, f"%{product}%"),
+    ).fetchall()
+
+    norm_to_originals: dict[str, list[str]] = {}
+    counter: Counter[str] = Counter()
+    for r in rows:
+        msg = (r["message"] or "").strip()
+        if not msg or _is_cs_system_msg(msg):
+            continue
+        norm = _re.sub(r"\s+", " ", msg)
+        norm = _re.sub(r"\d{4,}", "N", norm)
+        if len(norm) < 15:
+            continue
+        counter[norm] += 1
+        norm_to_originals.setdefault(norm, []).append(msg)
+
+    out = []
+    for norm, count in counter.most_common(limit):
+        sample = _mask_pii(norm_to_originals[norm][0])
+        if len(sample) > 300:
+            sample = sample[:297] + "..."
+        out.append({"product": product, "reply": sample, "count": count})
+    return out
+
+
+def cs_product_knowledge(
+    conn: sqlite3.Connection, products: list[str], per_product: int = 3
+) -> dict[str, list[dict]]:
+    """추출된 상품들 각각의 관련 답변 모음. Returns {product: [{reply, count}, ...]}."""
+    out: dict[str, list[dict]] = {}
+    for p in products:
+        replies = cs_product_replies(conn, p, limit=per_product)
+        if replies:
+            out[p] = [{"reply": r["reply"], "count": r["count"]} for r in replies]
+    return out
+
+
 def cs_analyze_message(
     conn: sqlite3.Connection,
     customer_message: str,
-    limit_replies: int = 5,
+    limit_replies: int = 10,
 ) -> dict:
     """인입 메시지 종합 분석 — intent / sentiment / 추출 정보 / 매뉴얼 / 과거 답변.
 
@@ -819,8 +883,11 @@ def cs_analyze_message(
         "dates": dates,
     }
 
-    # 4. 과거 답변
+    # 4. 과거 답변 (톤 학습용 — 더 많이)
     similar = cs_find_similar_replies(conn, customer_message, limit=limit_replies)
+
+    # 5. 추출된 상품 각각의 관련 답변 (상품 지식)
+    product_knowledge = cs_product_knowledge(conn, products, per_product=3) if products else {}
 
     return {
         "intent": intent,
@@ -828,6 +895,7 @@ def cs_analyze_message(
         "urgency": urgency,
         "extracted": extracted,
         "similar_replies": similar,
+        "product_knowledge": product_knowledge,
     }
 
 
