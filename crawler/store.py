@@ -560,21 +560,27 @@ def import_cs_messages(
 
 
 # 이지데스크 / 카카오 채널톡 / SMS 자동 시스템 메시지 — 자동응답 후보에서 제외.
-# 진짜 고객 입력 텍스트만 보기 위함 (메모리: "인입의 87%가 20자 미만 정형화된 질문").
 CS_SYSTEM_PATTERNS = [
-    "조선팔도떡집 간편 카톡주문",      # 카카오 챗봇 메뉴 진입 자동 메시지
-    "고객이 대화방을 나갔습니다",       # 채널톡 이탈 자동
-    "고객이 대화방에 들어왔습니다",     # 입장 자동
-    "문자주문합니다",                  # SMS 자동 헤더
-    "상품을 문의합니다",                # 카카오 채널톡 시스템
-    "상품보러가기",                    # 시스템 링크 prefix
-    "쇼핑하기",                        # 메뉴
-    "메뉴 선택",                       # 챗봇 메뉴
-    "상담사 연결",                     # 챗봇 → 상담사 자동
-    "원하시는 버튼을 눌러주세요",       # 자동 응답 prefix
-    "조선팔도떡집입니다",               # 자동 인사
-    "안녕하세요",                      # 단독 인사만 (자동 가능성)
+    "조선팔도떡집 간편 카톡주문",
+    "고객이 대화방을 나갔습니다",
+    "고객이 대화방에 들어왔습니다",
+    "문자주문합니다",
+    "상품을 문의합니다",
+    "상품보러가기",
+    "쇼핑하기",
+    "메뉴 선택",
+    "상담사 연결",
+    "원하시는 버튼을 눌러주세요",
+    "조선팔도떡집입니다",
 ]
+
+# 단순 인사/응답 — 자동응답 가치 없음 (정확 일치만)
+CS_TRIVIAL_RESPONSES = {
+    "안녕하세요", "감사합니다", "감사해요", "감사", "네",
+    "네 감사합니다", "네 알겠습니다", "알겠습니다", "넵", "네네",
+    "저기요", "여보세요", "ㅎㅎ", "ㅋㅋ", "ㅎ", "ㅋ", "ㅇㅇ",
+    "확인했습니다", "확인했어요",
+}
 
 
 def _is_cs_system_msg(msg: str) -> bool:
@@ -585,6 +591,18 @@ def _is_cs_system_msg(msg: str) -> bool:
         if p in s:
             return True
     return False
+
+
+def _is_trivial(msg: str) -> bool:
+    import re as _re
+    s = _re.sub(r"[\s\.\,\!\?\~]+", "", msg.strip())
+    return s in CS_TRIVIAL_RESPONSES
+
+
+def _mask_pii(s: str) -> str:
+    """4자리 이상 연속 숫자(인증번호/주문번호/전화번호) 마스킹."""
+    import re as _re
+    return _re.sub(r"\d{4,}", lambda m: "X" * len(m.group()), s)
 
 
 def cs_top_questions(
@@ -618,9 +636,8 @@ def cs_top_questions(
     counter: Counter[str] = Counter()
     for r in rows:
         msg = (r["message"] or "").strip()
-        if not msg or _is_cs_system_msg(msg):
+        if not msg or _is_cs_system_msg(msg) or _is_trivial(msg):
             continue
-        # normalize — 공백/구두점/조사 제거하여 같은 의도 묶기
         norm = _re.sub(r"[\s\.\,\!\?\~\-\/\(\)\[\]\:]+", "", msg).lower()
         if not norm or len(norm) < 2:
             continue
@@ -680,7 +697,8 @@ def cs_top_canned(
             continue
         originals = Counter(norm_to_originals[norm])
         sample = originals.most_common(1)[0][0]
-        # 너무 길면 잘라서
+        # PII 마스킹 (인증번호/주문번호/전화번호)
+        sample = _mask_pii(sample)
         if len(sample) > 80:
             sample = sample[:77] + "..."
         out.append({"sample": sample, "count": count, "variants": len(originals)})
