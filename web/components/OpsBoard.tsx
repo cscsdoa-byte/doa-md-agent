@@ -46,12 +46,22 @@ function daysUntil(iso: string | null | undefined): number | null {
 const STATUS_LABEL: Record<string, string> = {
   running: "🔴 진행중",
   selected: "✅ 선정",
+  closed:  "🏁 종료",
 };
+
+type StatusFilter = "active" | "all" | "closed";
+
+const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: "active", label: "진행·선정" },
+  { value: "all",    label: "전체" },
+  { value: "closed", label: "🏁 최근 종료" },
+];
 
 export default function OpsBoard({ events, conflicts = {} }: Props) {
   const router = useRouter();
   const [sortKey, setSortKey] = useState<SortKey>("endSoon");
   const [mdFilter, setMdFilter] = useState<string>("");  // "" = 전체
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -67,11 +77,13 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
   }, [events]);
 
   const filtered = useMemo(() => {
-    if (!mdFilter) return events;
-    return events.filter(
-      (e) => ((e.md_owner_name && e.md_owner_name.trim()) || "(미지정)") === mdFilter,
-    );
-  }, [events, mdFilter]);
+    return events.filter((e) => {
+      if (statusFilter === "active" && !(e.status === "running" || e.status === "selected")) return false;
+      if (statusFilter === "closed" && e.status !== "closed") return false;
+      if (mdFilter && ((e.md_owner_name && e.md_owner_name.trim()) || "(미지정)") !== mdFilter) return false;
+      return true;
+    });
+  }, [events, mdFilter, statusFilter]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -169,6 +181,30 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
 
       {/* 필터 + 정렬 토글 */}
       <div className="space-y-2">
+        <div className="flex items-center gap-1 text-xs flex-wrap">
+          <span className="text-slate-500 mr-1">상태</span>
+          {STATUS_FILTER_OPTIONS.map((o) => {
+            const cnt =
+              o.value === "active"
+                ? events.filter((e) => e.status === "running" || e.status === "selected").length
+                : o.value === "closed"
+                ? events.filter((e) => e.status === "closed").length
+                : events.length;
+            return (
+              <button
+                key={o.value}
+                onClick={() => setStatusFilter(o.value)}
+                className={`px-2 py-1 rounded border ${
+                  statusFilter === o.value
+                    ? "bg-slate-800 text-white border-slate-800"
+                    : "bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {o.label} ({cnt})
+              </button>
+            );
+          })}
+        </div>
         {mdOptions.length > 1 && (
           <div className="flex items-center gap-1 text-xs flex-wrap">
             <span className="text-slate-500 mr-1">담당</span>
@@ -241,6 +277,8 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
                   ? "border-orange-500 bg-orange-50/40"
                   : e.status === "running"
                   ? "border-pink-400 bg-pink-50/30"
+                  : e.status === "closed"
+                  ? "border-slate-300 bg-slate-50/60"
                   : "border-emerald-300 bg-emerald-50/30"
               }`}
             >
@@ -448,6 +486,25 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
               {e.memo && !e.ops_stock_note && !e.ops_claim_note && (
                 <div className="px-3 py-2 border-t bg-white text-[11px] text-slate-600 line-clamp-2" title={e.memo}>
                   📝 {e.memo}
+                </div>
+              )}
+
+              {/* 종료 행사의 회고 — 작성 여부 표시 */}
+              {e.status === "closed" && (
+                <div className="px-3 py-2 border-t bg-white text-[11px]">
+                  {e.ops_retro_note && e.ops_retro_note.trim() ? (
+                    <div className="bg-violet-50 border-l-2 border-violet-400 px-2 py-1 rounded">
+                      <div className="text-[10px] font-semibold text-violet-900">📝 회고</div>
+                      <div className="text-slate-700 whitespace-pre-wrap line-clamp-3">{e.ops_retro_note}</div>
+                    </div>
+                  ) : (
+                    <Link
+                      href={`/?selected=${e.short_id}`}
+                      className="block bg-amber-50 border border-amber-200 px-2 py-1 rounded text-amber-900 hover:bg-amber-100 text-center font-semibold"
+                    >
+                      📝 회고 작성 필요 — 클릭해서 작성
+                    </Link>
+                  )}
                 </div>
               )}
             </div>

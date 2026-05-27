@@ -5,23 +5,47 @@ import { loadEvents } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
-// 진행중·선정 행사만 모아 한눈에 운영 — 5종세트(매출/광고/재고/캡쳐/클레임) 카드 뷰.
-const OPS_STATUSES = new Set(["running", "selected"]);
+// 운영 보드 = 진행중·선정 + 최근(14일 이내) 종료까지 후보로 묶어 보냄.
+// 보드 client 컴포넌트가 상태 토글로 필터.
+const ACTIVE_STATUSES = new Set(["running", "selected"]);
+const CLOSED_LOOKBACK_DAYS = 14;
 
 export default async function OpsPage() {
   const payload = await loadEvents();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const cutoff = new Date(today.getTime() - CLOSED_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+
   const items = payload.events
-    .filter((e) => OPS_STATUSES.has(e.status))
+    .filter((e) => {
+      if (ACTIVE_STATUSES.has(e.status)) return true;
+      if (e.status === "closed" && e.sale_end) {
+        const end = new Date(e.sale_end);
+        end.setHours(0, 0, 0, 0);
+        return !isNaN(end.getTime()) && end >= cutoff && end <= today;
+      }
+      return false;
+    })
     .sort((a, b) => {
-      // running 먼저, 그 다음 종료 임박순
-      if (a.status !== b.status) return a.status === "running" ? -1 : 1;
+      // running → selected → closed 순, 그 안에서 종료 임박순
+      const order = { running: 0, selected: 1, closed: 2 } as Record<string, number>;
+      const oa = order[a.status] ?? 99;
+      const ob = order[b.status] ?? 99;
+      if (oa !== ob) return oa - ob;
       const ae = a.sale_end ?? "9999";
       const be = b.sale_end ?? "9999";
       return ae.localeCompare(be);
     });
-  // 카니발 충돌은 진행 중·선정에 한정하지 말고 전체 events 로 계산 (페어 상대가 다른 상태일 수 있음)
+
+  const activeCount = items.filter((e) => ACTIVE_STATUSES.has(e.status)).length;
+  const closedCount = items.length - activeCount;
+
+  // 카니발 충돌은 전체 events 로 계산
   const conflictMap = detectConflicts(payload.events);
-  const conflictsByEvent: Record<string, { other_short: string; other_title: string; other_channel: string; common_skus: number[] }[]> = {};
+  const conflictsByEvent: Record<
+    string,
+    { other_short: string; other_title: string; other_channel: string; common_skus: number[] }[]
+  > = {};
   for (const ev of items) {
     const list = conflictMap.get(ev.dedup_id) ?? [];
     if (list.length > 0) conflictsByEvent[ev.dedup_id] = list;
@@ -35,7 +59,8 @@ export default async function OpsPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">🛠️ 진행중 행사 운영 보드</h1>
             <p className="text-sm text-slate-500 mt-1">
-              데이터 갱신: {generatedAt} · 진행중·선정 {items.length}건
+              데이터 갱신: {generatedAt} · 진행·선정 {activeCount}건
+              {closedCount > 0 && ` · 최근 종료 ${closedCount}건 (회고 트래킹)`}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
