@@ -105,6 +105,13 @@ export default async function Home() {
               💬 CS 업로드
             </Link>
             <Link
+              href="/cs-manual"
+              className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
+              title="CS 답변 매뉴얼 + AI 답변 추천"
+            >
+              📖 CS 매뉴얼
+            </Link>
+            <Link
               href="/templates"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
             >
