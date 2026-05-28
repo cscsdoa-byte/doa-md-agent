@@ -133,6 +133,13 @@ export default async function Home() {
               📡 채널
             </Link>
             <Link
+              href="/matrix"
+              className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
+              title="상품 × 채널 매트릭스 — 한눈에 입점 상태"
+            >
+              🧩 매트릭스
+            </Link>
+            <Link
               href="/templates"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
             >
