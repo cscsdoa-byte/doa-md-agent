@@ -1523,15 +1523,15 @@ def main() -> None:
 
     pbkb = sp.add_parser("build-product-kb", help="조선팔도떡집 11종 상품 지식 베이스 빌드")
     pbkb.add_argument("--force", action="store_true", help="11종 전체 재빌드")
-    pbkb.add_argument("--smart", action="store_true", help="답변수 10%+ 변화 또는 7일+ 된 상품만 재빌드 (incremental)")
+    pbkb.add_argument("--smart", action="store_true", help="답변수 10%%+ 변화 또는 7일+ 된 상품만 재빌드 (incremental)")
 
     psim = sp.add_parser("save-simulation", help="마진 시뮬레이터 입력값을 행사 simulation_json 에 스냅샷 저장")
     psim.add_argument("id_prefix")
     psim.add_argument("--price", type=int, required=True, help="정상가 (원)")
     psim.add_argument("--cost", type=int, required=True, help="단가 원가")
     psim.add_argument("--ship", type=int, required=True, help="택배비")
-    psim.add_argument("--commission", type=float, required=True, help="수수료율 % (예: 10.6)")
-    psim.add_argument("--discount", type=float, required=True, help="할인율 % (예: 10)")
+    psim.add_argument("--commission", type=float, required=True, help="수수료율 %% (예: 10.6)")
+    psim.add_argument("--discount", type=float, required=True, help="할인율 %% (예: 10)")
     psim.add_argument("--extra", type=int, default=0, help="기타 비용 (전단지 등)")
 
     patt = sp.add_parser("attach-channel-totals", help="행사 기간 채널 전체 매출을 sales_json 에 attach (SKU 매칭 생략)")
