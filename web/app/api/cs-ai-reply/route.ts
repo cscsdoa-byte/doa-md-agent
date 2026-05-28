@@ -52,7 +52,12 @@ interface Analysis {
 async function analyzeMessage(message: string): Promise<Analysis | null> {
   try {
     const { stdout } = await runCli(["cs-analyze", message]);
-    return JSON.parse(stdout.trim()) as Analysis;
+    const parsed = JSON.parse(stdout.trim()) as Analysis;
+    // 속도 최적화 — examples 상위 5건만 유지 (Haiku + 5건이면 톤 학습 충분)
+    if (parsed.similar_replies) {
+      parsed.similar_replies = parsed.similar_replies.slice(0, 5);
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -185,21 +190,17 @@ export async function POST(request: NextRequest) {
       lines.push(`\n[상품: ${product}]`);
       const k = kb?.[product];
       if (k) {
-        if (k.summary) lines.push(`  · 한 줄: ${k.summary}`);
-        if (k.features?.length) lines.push(`  · 특징: ${k.features.join(" / ")}`);
-        if (k.storage_shelf_life) lines.push(`  · 보관·유통: ${k.storage_shelf_life}`);
-        if (k.packaging_options?.length) lines.push(`  · 구성: ${k.packaging_options.join(" / ")}`);
-        if (k.pricing_hints?.length) lines.push(`  · 가격: ${k.pricing_hints.join(" / ")}`);
-        if (k.pair_recommendations?.length) lines.push(`  · 어울리는: ${k.pair_recommendations.join(" / ")}`);
-        if (k.caveats?.length) lines.push(`  · 주의: ${k.caveats.join(" / ")}`);
-        if (k.common_concerns?.length) lines.push(`  · 자주 묻는 점: ${k.common_concerns.join(" / ")}`);
-        if (k.frequent_phrases?.length) lines.push(`  · 회사 자주 쓰는 표현: ${k.frequent_phrases.join(" | ")}`);
+        if (k.summary) lines.push(`  · ${k.summary}`);
+        if (k.features?.length) lines.push(`  · 특징: ${k.features.slice(0, 4).join(", ")}`);
+        if (k.storage_shelf_life) lines.push(`  · 보관: ${k.storage_shelf_life}`);
+        if (k.caveats?.length) lines.push(`  · 주의: ${k.caveats.slice(0, 2).join(", ")}`);
+        if (k.frequent_phrases?.length) lines.push(`  · 자주 표현: ${k.frequent_phrases.slice(0, 3).join(" | ")}`);
       }
+      // 상품별 실제 답변은 상위 2개만 + 짧게 (메인 톤 학습은 similar_replies 가 담당)
       const replies = pk?.[product];
       if (replies && replies.length > 0) {
-        lines.push("  · 실제 답변 예시:");
-        for (const r of replies) {
-          lines.push(`    - (${r.count}회) ${r.reply.slice(0, 200)}`);
+        for (const r of replies.slice(0, 2)) {
+          lines.push(`  · 답변예: ${r.reply.slice(0, 120)}`);
         }
       }
     }
@@ -252,9 +253,10 @@ JSON 형식으로 답변 옵션 3개와 후속 액션을 작성해주세요.`;
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",  // Haiku → Sonnet (톤 모방 능력 ↑)
-        max_tokens: 1500,
-        temperature: 0.6,  // 자연스러움 ↑ (기본 1.0 → 0.6, 일관성도 유지)
+        // Haiku 4.5 — Sonnet 대비 2-3배 빠름. few-shot 5건 + 명확한 system prompt 로 톤 모방 충분.
+        model: "claude-haiku-4-5",
+        max_tokens: 1000,    // 1500 → 1000 (응답 길이 단축)
+        temperature: 0.5,    // 0.6 → 0.5 (일관성 ↑, 빠른 수렴)
         system: hasContext ? SYSTEM_PROMPT_FEWSHOT : SYSTEM_PROMPT_NO_CONTEXT,
         messages,
       }),

@@ -1,8 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiUrl } from "@/lib/api";
 import { classifyMessage, type CsManualItem } from "@/lib/cs-manual";
+
+function Spinner({ startedAt }: { startedAt: number | null }) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!startedAt) return;
+    const id = setInterval(() => setTick((t) => t + 1), 100);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  const sec = startedAt ? ((Date.now() - startedAt) / 1000).toFixed(1) : "0.0";
+  void tick;
+  return <span>⏳ AI 답변 생성 중… {sec}s</span>;
+}
 
 interface Props {
   items: CsManualItem[];
@@ -72,6 +84,8 @@ export default function CsManualPanel({ items }: Props) {
     });
   }
 
+  const [aiStartedAt, setAiStartedAt] = useState<number | null>(null);
+
   async function askAi() {
     if (!customerMsg.trim()) {
       alert("고객 메시지를 입력하세요.");
@@ -79,6 +93,7 @@ export default function CsManualPanel({ items }: Props) {
     }
     setAiBusy(true);
     setAiResult(null);
+    setAiStartedAt(Date.now());
     try {
       const r = await fetch(apiUrl("/api/cs-ai-reply"), {
         method: "POST",
@@ -95,6 +110,7 @@ export default function CsManualPanel({ items }: Props) {
       setAiResult({ error: (e as Error).message });
     } finally {
       setAiBusy(false);
+      setAiStartedAt(null);
     }
   }
 
@@ -115,7 +131,7 @@ export default function CsManualPanel({ items }: Props) {
             disabled={aiBusy || !customerMsg.trim()}
             className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
           >
-            {aiBusy ? "⏳ AI 답변 생성 중…" : "🤖 AI 답변 생성 (Claude)"}
+            {aiBusy ? <Spinner startedAt={aiStartedAt} /> : "🤖 AI 답변 생성 (Claude)"}
           </button>
           <button
             onClick={() => { setCustomerMsg(""); setAiResult(null); }}

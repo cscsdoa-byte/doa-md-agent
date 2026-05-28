@@ -815,7 +815,7 @@ def cs_product_knowledge(
 def cs_analyze_message(
     conn: sqlite3.Connection,
     customer_message: str,
-    limit_replies: int = 10,
+    limit_replies: int = 5,  # 10 → 5 (속도 ↑, Haiku 톤 학습엔 충분)
 ) -> dict:
     """인입 메시지 종합 분석 — intent / sentiment / 추출 정보 / 매뉴얼 / 과거 답변.
 
