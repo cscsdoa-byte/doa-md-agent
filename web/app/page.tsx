@@ -112,6 +112,13 @@ export default async function Home() {
               📖 CS 매뉴얼
             </Link>
             <Link
+              href="/products"
+              className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
+              title="상품 카탈로그 — KB 자동 추출 + 직접 메모"
+            >
+              📦 상품
+            </Link>
+            <Link
               href="/templates"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
             >
