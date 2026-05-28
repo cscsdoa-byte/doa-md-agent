@@ -146,12 +146,22 @@ KB 에 정보 없는 경우만:
 - 위험(환불/불량/강한불만) → escalation 채우고 답변마다 "[상담사 직접 응대 필요]" 추가
 - JSON 외 텍스트 X`;
 
-// 매뉴얼 fallback (과거 답변 없을 때만) — 매우 간략
-const SYSTEM_PROMPT_NO_CONTEXT = `당신은 조선팔도떡집 CS 상담사입니다. 떡 제조·판매(신선식품)입니다.
+// 매뉴얼 fallback (과거 답변 없을 때) — KB 활용 규칙은 동일하게 적용
+const SYSTEM_PROMPT_NO_CONTEXT = `당신은 조선팔도떡집 CS 상담사입니다. 떡 제조·판매(신선식품).
 
-존댓말 + 친근한 톤 + 이모티콘(^^) 가끔 사용. 3~5줄.
-변수: #{고객명}, #{주문번호}, #{제조일}.
-추측 금지 — 모르는 건 "확인 후 안내드릴게요".
+톤: 존댓말 + 친근 + "^^" 자주. 3~5줄.
+- 단순 사과: "죄송합니다" (공감 표현 X)
+- 정보 요청 시 주문번호 X, "성함 + 연락처 뒷자리 4자리" 요청
+
+## 🔵 상품 지식 활용 규칙 (가장 중요)
+아래 user turn 의 "추출된 상품 지식" 블록에 가격·구성·특징·보관 등 정보 있으면 **반드시 답변에 직접 명시**.
+
+예시 — 가격 KB 에 "28,900원" 있으면:
+- ✓ "두쫀모 10개 정상가 28,900원, 할인가 18,900원이에요"
+- ✗ "상품 목록에서 찾기 어려워요" (KB 에 명백히 있는데 회피 X)
+- ✗ "확인 후 안내드릴게요" (KB 에 있는데 회피 X)
+
+KB 에 정보 없는 항목만 "확인 후 안내드릴게요" 사용. 추측 금지.
 
 출력 형식 (순수 JSON만):
 \`\`\`json
@@ -191,7 +201,11 @@ export async function POST(request: NextRequest) {
 
   const analysis = await analyzeMessage(message);
   const similar = analysis?.similar_replies ?? [];
+  const kbProducts = analysis?.product_kb ? Object.keys(analysis.product_kb) : [];
+  // hasContext = 톤 학습 가능한 경우 (similar examples 있을 때). KB 만 있을 땐 fallback 사용.
   const hasContext = similar.length > 0;
+  // 단 KB 있으면 어느 prompt 든 KB 활용 강제 (둘 다 KB 규칙 포함)
+  void kbProducts;
 
   // few-shot — user/assistant turn pairs (Claude 모방 가장 강한 형식)
   // 빈도 낮은 거 먼저, 높은 거 마지막에 → 최근 turn 효과로 가장 흔한 패턴 강조
@@ -293,7 +307,13 @@ ${extractedLines.length > 0 ? `- 추출 정보: ${extractedLines.join(" / ")}` :
 지정된 JSON 형식으로 응답. replies 3개 모두 위 assistant 답변과 똑같은 톤이어야 합니다.`
     : `고객 메시지:
 "${message}"
+${analysis ? `
+[자동 분석]
+- 의도: ${analysis.intent}
+- 감정: ${analysis.sentiment} (긴급도 ${analysis.urgency}/3)
+${extractedLines.length > 0 ? `- 추출 정보: ${extractedLines.join(" / ")}` : ""}` : ""}${productKnowledgeBlock}
 
+위 상품 KB 정보가 있으면 답변에 직접 사용. 없는 정보만 "확인 후 안내드릴게요".
 JSON 형식으로 답변 옵션 3개와 후속 액션을 작성해주세요.`;
 
   const messages: Msg[] = [];
