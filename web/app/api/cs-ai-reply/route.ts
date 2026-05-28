@@ -263,7 +263,14 @@ export async function POST(request: NextRequest) {
 
 → 사과는 "죄송합니다" 단순하게. 사실 인정 + 처리 안내 위주.
 → 고객 확인 = 성함 + 연락처 뒷4자리.
-→ **상품 정보 = KB 에 있는 정보 그대로. KB 에 없으면 "확인 후 안내" 만 가능.**
+
+## 🔵🔵🔵 가장 중요한 규칙 — KB 정보 직접 인용
+"추출된 상품 지식" 블록에 가격·구성·특징·보관 등 정보가 있으면:
+- ✓ **그 정보를 답변에 직접 명시** (예: "두쫀모 10개 정상가 28,900원, 할인가 18,900원입니다")
+- ✗ "확인 후 안내드릴게요" 라고 회피 X (KB 에 있는 정보는 답변 가능)
+
+KB 에 없는 정보 (예: KB 에 보관법 없음) 만 "확인 후 안내드릴게요" 사용.
+KB 에 있는 정보를 회피하면 안 됨 — 그게 회사가 이미 운영 중인 답변임.
 
 새 고객 메시지:
 "${message}"
@@ -295,10 +302,11 @@ JSON 형식으로 답변 옵션 3개와 후속 액션을 작성해주세요.`;
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        // Haiku 4.5 — Sonnet 대비 2-3배 빠름. few-shot 5건 + 명확한 system prompt 로 톤 모방 충분.
-        model: "claude-haiku-4-5",
-        max_tokens: 1000,    // 1500 → 1000 (응답 길이 단축)
-        temperature: 0.5,    // 0.6 → 0.5 (일관성 ↑, 빠른 수렴)
+        // Sonnet 4.6 — Haiku 가 KB 활용을 보수적으로 회피해서 다시 Sonnet 으로.
+        // 속도 약간 느리지만 KB 인용 능력 큼.
+        model: "claude-sonnet-4-6",
+        max_tokens: 1000,
+        temperature: 0.4,
         system: hasContext ? SYSTEM_PROMPT_FEWSHOT : SYSTEM_PROMPT_NO_CONTEXT,
         messages,
       }),
