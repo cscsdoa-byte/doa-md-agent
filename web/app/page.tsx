@@ -152,6 +152,13 @@ export default async function Home() {
               📇 MD 연락처
             </Link>
             <Link
+              href="/sourcing"
+              className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
+              title="신제품 공급처(공장) 컨택 진척 보드"
+            >
+              🧭 소싱 보드
+            </Link>
+            <Link
               href="/simulator"
               className="px-4 py-2 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700"
             >

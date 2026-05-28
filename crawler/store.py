@@ -280,6 +280,75 @@ def _migrate(conn: sqlite3.Connection) -> None:
         if col not in ch_cols:
             conn.execute(ddl)
 
+    # 소싱 보드: 공급처 마스터 + 신제품 + 공급처 컨택
+    # 위탁판매 구조라 재고는 안 잡지만, 공장 발굴/컨택 진척은 추적해야 함.
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS suppliers (
+            id              TEXT PRIMARY KEY,         -- 'sup_' + 12 hex
+            name            TEXT NOT NULL,            -- 공장/상호명
+            contact_person  TEXT,                     -- 담당자
+            phone           TEXT,
+            email           TEXT,
+            kakao_id        TEXT,
+            address         TEXT,                     -- 소재지 (시·도)
+            category        TEXT,                     -- 떡류/냉동떡/한과/포장재/기타
+            scale           TEXT,                     -- 소규모(공방)/중소/중대형
+            moq             INTEGER,                  -- 최소주문 수량
+            lead_time_days  INTEGER,                  -- 리드타임
+            source          TEXT,                     -- 발굴 출처 (예: "네이버 상품정보고시")
+            homepage        TEXT,
+            notes           TEXT,
+            status          TEXT NOT NULL DEFAULT 'candidate',  -- candidate/active/paused/dropped
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT NOT NULL
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_suppliers_category ON suppliers(category)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_suppliers_status ON suppliers(status)")
+
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS products (
+            id                  TEXT PRIMARY KEY,     -- 'prd_' + 12 hex
+            name                TEXT NOT NULL,
+            category            TEXT,                 -- 떡류/냉동떡/한과/기타
+            spec_notes          TEXT,                 -- 스펙·컨셉 메모
+            target_launch_date  TEXT,                 -- ISO date, 출시 목표일
+            target_event_id     TEXT,                 -- events.dedup_id (옵션, FK 강제 안 함)
+            target_channels     TEXT,                 -- JSON array of channel_key
+            status              TEXT NOT NULL DEFAULT 'planning',
+                                                     -- planning / sourcing / sample / decided / launched / dropped
+            notes               TEXT,
+            created_at          TEXT NOT NULL,
+            updated_at          TEXT NOT NULL
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_products_launch ON products(target_launch_date)")
+
+    # 신제품 × 공급처 컨택 진척. 같은 (product, supplier) 쌍은 1개.
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS sourcing_contacts (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id          TEXT NOT NULL,
+            supplier_id         TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'not_sent',
+                                -- not_sent/sent_waiting/replied/sample/negotiating/confirmed/on_hold/rejected
+            last_contacted_at   TEXT,                 -- 마지막 컨택 시각 (ISO). stale 계산 기준.
+            next_action         TEXT,                 -- 다음 액션 한 줄
+            quoted_unit_price   INTEGER,              -- 견적 단가(원)
+            quoted_moq          INTEGER,              -- 견적 MOQ
+            sample_received_at  TEXT,
+            sample_notes        TEXT,
+            notes               TEXT,
+            created_at          TEXT NOT NULL,
+            updated_at          TEXT NOT NULL,
+            UNIQUE(product_id, supplier_id)
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sourcing_product ON sourcing_contacts(product_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sourcing_supplier ON sourcing_contacts(supplier_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sourcing_status ON sourcing_contacts(status)")
+
 
 @contextmanager
 def connect(db_path: Path = DB_PATH) -> Iterator[sqlite3.Connection]:
@@ -2028,3 +2097,358 @@ def stats(conn: sqlite3.Connection) -> dict:
     }
     doa_fit = conn.execute("SELECT COUNT(*) FROM events WHERE is_doa_fit = 1").fetchone()[0]
     return {"total": total, "doa_fit": doa_fit, "by_channel": by_channel}
+
+
+# ============================================================================
+# 소싱 보드 — 공급처 마스터 / 신제품 / 컨택 진척
+# ============================================================================
+
+SUPPLIER_STATUS_VALUES = ("candidate", "active", "paused", "dropped")
+SUPPLIER_STATUS_LABELS = {
+    "candidate": "후보",
+    "active": "거래중",
+    "paused": "보류",
+    "dropped": "탈락",
+}
+
+PRODUCT_STATUS_VALUES = (
+    "planning", "sourcing", "sample", "decided", "launched", "dropped"
+)
+PRODUCT_STATUS_LABELS = {
+    "planning": "기획",
+    "sourcing": "소싱중",
+    "sample": "샘플",
+    "decided": "공급확정",
+    "launched": "출시",
+    "dropped": "보류/취소",
+}
+
+SOURCING_STATUS_VALUES = (
+    "not_sent", "sent_waiting", "replied",
+    "sample", "negotiating", "confirmed",
+    "on_hold", "rejected",
+)
+SOURCING_STATUS_LABELS = {
+    "not_sent":     "미발송",
+    "sent_waiting": "발송(대기)",
+    "replied":      "답변옴",
+    "sample":       "샘플진행",
+    "negotiating":  "단가협상",
+    "confirmed":    "확정",
+    "on_hold":      "보류",
+    "rejected":     "거절",
+}
+# 스테일 계산에서 "응답 대기 중" 으로 간주할 상태들
+SOURCING_ACTIVE_STATES = ("sent_waiting", "replied", "sample", "negotiating")
+
+
+def _short_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
+# ---- suppliers (공급처) ----
+
+def add_supplier(conn: sqlite3.Connection, **fields) -> str:
+    now = datetime.now().isoformat()
+    sid = _short_id("sup")
+    conn.execute(
+        """INSERT INTO suppliers
+           (id, name, contact_person, phone, email, kakao_id, address,
+            category, scale, moq, lead_time_days, source, homepage, notes,
+            status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            sid,
+            fields["name"],
+            fields.get("contact_person"),
+            fields.get("phone"),
+            fields.get("email"),
+            fields.get("kakao_id"),
+            fields.get("address"),
+            fields.get("category"),
+            fields.get("scale"),
+            fields.get("moq"),
+            fields.get("lead_time_days"),
+            fields.get("source"),
+            fields.get("homepage"),
+            fields.get("notes"),
+            fields.get("status", "candidate"),
+            now,
+            now,
+        ),
+    )
+    return sid
+
+
+def update_supplier(conn: sqlite3.Connection, supplier_id: str, **fields) -> bool:
+    allowed = {
+        "name", "contact_person", "phone", "email", "kakao_id", "address",
+        "category", "scale", "moq", "lead_time_days", "source", "homepage",
+        "notes", "status",
+    }
+    sets = [f"{k} = ?" for k in fields if k in allowed]
+    if not sets:
+        return False
+    params = [fields[k] for k in fields if k in allowed]
+    sets.append("updated_at = ?")
+    params.append(datetime.now().isoformat())
+    params.append(supplier_id)
+    cur = conn.execute(
+        f"UPDATE suppliers SET {', '.join(sets)} WHERE id = ?", params
+    )
+    return cur.rowcount > 0
+
+
+def delete_supplier(conn: sqlite3.Connection, supplier_id: str) -> bool:
+    # 컨택 row 도 함께 정리
+    conn.execute("DELETE FROM sourcing_contacts WHERE supplier_id = ?", (supplier_id,))
+    cur = conn.execute("DELETE FROM suppliers WHERE id = ?", (supplier_id,))
+    return cur.rowcount > 0
+
+
+def get_supplier(conn: sqlite3.Connection, supplier_id: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM suppliers WHERE id = ?", (supplier_id,)
+    ).fetchone()
+
+
+def list_suppliers(
+    conn: sqlite3.Connection,
+    category: str | None = None,
+    status: str | None = None,
+) -> list[sqlite3.Row]:
+    sql = "SELECT * FROM suppliers WHERE 1=1"
+    params: list = []
+    if category:
+        sql += " AND category = ?"
+        params.append(category)
+    if status:
+        sql += " AND status = ?"
+        params.append(status)
+    sql += " ORDER BY name ASC"
+    return conn.execute(sql, params).fetchall()
+
+
+def bulk_import_suppliers(
+    conn: sqlite3.Connection, rows: Iterable[dict]
+) -> tuple[int, int]:
+    """이름이 같은 공급처는 skip. (n_added, n_skipped) 반환."""
+    added = 0
+    skipped = 0
+    for r in rows:
+        name = (r.get("name") or "").strip()
+        if not name:
+            skipped += 1
+            continue
+        existing = conn.execute(
+            "SELECT id FROM suppliers WHERE name = ?", (name,)
+        ).fetchone()
+        if existing:
+            skipped += 1
+            continue
+        add_supplier(conn, **r)
+        added += 1
+    return added, skipped
+
+
+# ---- products (신제품) ----
+
+def add_product(conn: sqlite3.Connection, **fields) -> str:
+    now = datetime.now().isoformat()
+    pid = _short_id("prd")
+    tc = fields.get("target_channels")
+    if isinstance(tc, list):
+        tc = json.dumps(tc, ensure_ascii=False)
+    conn.execute(
+        """INSERT INTO products
+           (id, name, category, spec_notes, target_launch_date,
+            target_event_id, target_channels, status, notes,
+            created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            pid,
+            fields["name"],
+            fields.get("category"),
+            fields.get("spec_notes"),
+            fields.get("target_launch_date"),
+            fields.get("target_event_id"),
+            tc,
+            fields.get("status", "planning"),
+            fields.get("notes"),
+            now,
+            now,
+        ),
+    )
+    return pid
+
+
+def update_product(conn: sqlite3.Connection, product_id: str, **fields) -> bool:
+    allowed = {
+        "name", "category", "spec_notes", "target_launch_date",
+        "target_event_id", "target_channels", "status", "notes",
+    }
+    if "target_channels" in fields and isinstance(fields["target_channels"], list):
+        fields["target_channels"] = json.dumps(fields["target_channels"], ensure_ascii=False)
+    sets = [f"{k} = ?" for k in fields if k in allowed]
+    if not sets:
+        return False
+    params = [fields[k] for k in fields if k in allowed]
+    sets.append("updated_at = ?")
+    params.append(datetime.now().isoformat())
+    params.append(product_id)
+    cur = conn.execute(
+        f"UPDATE products SET {', '.join(sets)} WHERE id = ?", params
+    )
+    return cur.rowcount > 0
+
+
+def delete_product(conn: sqlite3.Connection, product_id: str) -> bool:
+    conn.execute("DELETE FROM sourcing_contacts WHERE product_id = ?", (product_id,))
+    cur = conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
+    return cur.rowcount > 0
+
+
+def get_product(conn: sqlite3.Connection, product_id: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM products WHERE id = ?", (product_id,)
+    ).fetchone()
+
+
+def list_products(
+    conn: sqlite3.Connection, status: str | None = None
+) -> list[sqlite3.Row]:
+    sql = "SELECT * FROM products"
+    params: list = []
+    if status:
+        sql += " WHERE status = ?"
+        params.append(status)
+    sql += " ORDER BY COALESCE(target_launch_date, '9999-12-31') ASC, created_at DESC"
+    return conn.execute(sql, params).fetchall()
+
+
+# ---- sourcing_contacts (신제품 × 공급처) ----
+
+def add_sourcing_contact(
+    conn: sqlite3.Connection,
+    product_id: str,
+    supplier_id: str,
+    **fields,
+) -> int:
+    now = datetime.now().isoformat()
+    cur = conn.execute(
+        """INSERT INTO sourcing_contacts
+           (product_id, supplier_id, status, last_contacted_at, next_action,
+            quoted_unit_price, quoted_moq, sample_received_at, sample_notes,
+            notes, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            product_id,
+            supplier_id,
+            fields.get("status", "not_sent"),
+            fields.get("last_contacted_at"),
+            fields.get("next_action"),
+            fields.get("quoted_unit_price"),
+            fields.get("quoted_moq"),
+            fields.get("sample_received_at"),
+            fields.get("sample_notes"),
+            fields.get("notes"),
+            now,
+            now,
+        ),
+    )
+    return cur.lastrowid
+
+
+def update_sourcing_contact(
+    conn: sqlite3.Connection, contact_id: int, **fields
+) -> bool:
+    allowed = {
+        "status", "last_contacted_at", "next_action",
+        "quoted_unit_price", "quoted_moq",
+        "sample_received_at", "sample_notes", "notes",
+    }
+    # 상태가 활동중 상태로 바뀌고 last_contacted_at 미지정이면 지금으로
+    if (
+        fields.get("status") in SOURCING_ACTIVE_STATES
+        and "last_contacted_at" not in fields
+    ):
+        fields["last_contacted_at"] = datetime.now().isoformat()
+    sets = [f"{k} = ?" for k in fields if k in allowed]
+    if not sets:
+        return False
+    params = [fields[k] for k in fields if k in allowed]
+    sets.append("updated_at = ?")
+    params.append(datetime.now().isoformat())
+    params.append(contact_id)
+    cur = conn.execute(
+        f"UPDATE sourcing_contacts SET {', '.join(sets)} WHERE id = ?", params
+    )
+    return cur.rowcount > 0
+
+
+def delete_sourcing_contact(conn: sqlite3.Connection, contact_id: int) -> bool:
+    cur = conn.execute("DELETE FROM sourcing_contacts WHERE id = ?", (contact_id,))
+    return cur.rowcount > 0
+
+
+def list_sourcing_contacts(
+    conn: sqlite3.Connection,
+    product_id: str | None = None,
+    supplier_id: str | None = None,
+) -> list[sqlite3.Row]:
+    sql = """
+      SELECT c.*, s.name AS supplier_name, s.phone AS supplier_phone,
+             s.contact_person AS supplier_contact_person,
+             p.name AS product_name, p.target_launch_date AS product_launch_date
+        FROM sourcing_contacts c
+        JOIN suppliers s ON s.id = c.supplier_id
+        JOIN products  p ON p.id = c.product_id
+       WHERE 1=1
+    """
+    params: list = []
+    if product_id:
+        sql += " AND c.product_id = ?"
+        params.append(product_id)
+    if supplier_id:
+        sql += " AND c.supplier_id = ?"
+        params.append(supplier_id)
+    sql += " ORDER BY c.updated_at DESC"
+    return conn.execute(sql, params).fetchall()
+
+
+def compute_sourcing_stale(
+    last_contacted_at: str | None,
+    status: str,
+    product_launch_date: str | None,
+    now: datetime | None = None,
+) -> dict:
+    """발송~단가협상 상태에서 마지막 컨택 이후 지연 일수를 계산.
+
+    임계치는 출시 목표일이 가까울수록 단축:
+      D-day 14일 이내 → 3일, 7일 이내 → 2일, 그 외 → 7일.
+    반환: { "stale": bool, "days_since": int|None, "threshold": int }
+    """
+    if status not in SOURCING_ACTIVE_STATES or not last_contacted_at:
+        return {"stale": False, "days_since": None, "threshold": 7}
+    now = now or datetime.now()
+    try:
+        last = datetime.fromisoformat(last_contacted_at)
+    except ValueError:
+        return {"stale": False, "days_since": None, "threshold": 7}
+    days_since = (now - last).days
+    threshold = 7
+    if product_launch_date:
+        try:
+            launch = datetime.fromisoformat(product_launch_date)
+            days_to_launch = (launch - now).days
+            if days_to_launch <= 7:
+                threshold = 2
+            elif days_to_launch <= 14:
+                threshold = 3
+        except ValueError:
+            pass
+    return {
+        "stale": days_since >= threshold,
+        "days_since": days_since,
+        "threshold": threshold,
+    }

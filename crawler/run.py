@@ -11,22 +11,38 @@ import yaml
 from crawler.adapters import EventPost, load_adapter
 from crawler.parse import is_doa_fit, parse_category, parse_deadline
 from crawler.store import (
+    PRODUCT_STATUS_LABELS,
+    PRODUCT_STATUS_VALUES,
+    SOURCING_STATUS_LABELS,
+    SOURCING_STATUS_VALUES,
     STATUS_LABELS,
     STATUS_VALUES,
+    SUPPLIER_STATUS_LABELS,
+    SUPPLIER_STATUS_VALUES,
     add_applied_sku,
     add_attachment,
     add_contact,
     add_manual_event,
+    add_product,
+    add_sourcing_contact,
+    add_supplier,
     add_template,
+    bulk_import_suppliers,
+    compute_sourcing_stale,
     connect,
     delete_attachment,
     delete_attachments_for_event,
     delete_channel_master,
     delete_contact,
     delete_event,
+    delete_product,
+    delete_sourcing_contact,
+    delete_supplier,
     delete_template,
     get_applied_skus,
     get_attachment,
+    get_product,
+    get_supplier,
     infer_event_types,
     insert_activity,
     delete_activity,
@@ -35,7 +51,10 @@ from crawler.store import (
     list_channels_master,
     set_sku_channel_status,
     list_contacts,
+    list_products,
     list_recent,
+    list_sourcing_contacts,
+    list_suppliers,
     list_templates,
     remove_applied_sku,
     reset_event,
@@ -51,6 +70,9 @@ from crawler.store import (
     update_channel_master_meta,
     update_contact,
     update_event_fields,
+    update_product,
+    update_sourcing_contact,
+    update_supplier,
     upsert_channel_master,
     upsert_events,
 )
@@ -823,6 +845,26 @@ def cmd_dump_json(out_path: str | None) -> int:
         from .store import list_ad_comments, ad_comment_stats
         ad_comments_recent = list_ad_comments(conn, min_severity=1, limit=50)
         ad_comments_stats_obj = ad_comment_stats(conn, days=14)
+        # 소싱 보드 — 공급처/신제품/컨택 (UI에서 합쳐 사용)
+        suppliers_list = [dict(r) for r in list_suppliers(conn)]
+        products_list = []
+        for r in list_products(conn):
+            d = dict(r)
+            d["status_label"] = PRODUCT_STATUS_LABELS.get(d["status"], d["status"])
+            if d.get("target_channels"):
+                try:
+                    d["target_channels"] = _json.loads(d["target_channels"])
+                except Exception:
+                    pass
+            products_list.append(d)
+        contacts_list = []
+        for r in list_sourcing_contacts(conn):
+            d = dict(r)
+            d["status_label"] = SOURCING_STATUS_LABELS.get(d["status"], d["status"])
+            d["stale"] = compute_sourcing_stale(
+                d.get("last_contacted_at"), d["status"], d.get("product_launch_date")
+            )
+            contacts_list.append(d)
     payload = {
         "generated_at": datetime.now().isoformat(),
         "total": s["total"],
@@ -841,6 +883,16 @@ def cmd_dump_json(out_path: str | None) -> int:
         "product_kb": product_kb,
         "ad_comments": ad_comments_recent,
         "ad_comment_stats": ad_comments_stats_obj,
+        "sourcing": {
+            "suppliers": suppliers_list,
+            "products": products_list,
+            "contacts": contacts_list,
+            "status_labels": {
+                "supplier": SUPPLIER_STATUS_LABELS,
+                "product": PRODUCT_STATUS_LABELS,
+                "contact": SOURCING_STATUS_LABELS,
+            },
+        },
     }
     target.write_text(_json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"✓ dump: {target}  ({len(items)}건)")
@@ -1327,6 +1379,252 @@ def cmd_period(id_prefix: str, start: str, end: str) -> int:
     return 0
 
 
+# ---- 소싱 보드 CLI ----
+
+def _supplier_kwargs(args) -> dict:
+    """argparse 결과에서 supplier 필드만 추려서 dict로. None 값은 update에선 의도 모호하므로
+    add 에선 빈 값으로, update 에선 명시된 것만 적용되게 호출부에서 처리."""
+    return {
+        k: getattr(args, k, None)
+        for k in (
+            "name", "contact_person", "phone", "email", "kakao_id",
+            "address", "category", "scale", "moq", "lead_time_days",
+            "source", "homepage", "notes", "status",
+        )
+    }
+
+
+def cmd_supplier_add(args) -> int:
+    fields = _supplier_kwargs(args)
+    if not fields.get("name"):
+        print("ERROR: --name 필수", file=sys.stderr)
+        return 1
+    with connect() as conn:
+        sid = add_supplier(conn, **{k: v for k, v in fields.items() if v is not None})
+    print(f"✓ 공급처 {sid} 추가: {fields['name']}")
+    return 0
+
+
+def cmd_supplier_update(args) -> int:
+    fields = {
+        k: v for k, v in _supplier_kwargs(args).items() if v is not None
+    }
+    if not fields:
+        print("ERROR: 수정할 필드 없음", file=sys.stderr)
+        return 1
+    with connect() as conn:
+        ok = update_supplier(conn, args.supplier_id, **fields)
+    if not ok:
+        print(f"ERROR: 공급처 {args.supplier_id} 못 찾음", file=sys.stderr)
+        return 1
+    print(f"✓ 공급처 {args.supplier_id} 수정 ({len(fields)}개 필드)")
+    return 0
+
+
+def cmd_supplier_delete(supplier_id: str) -> int:
+    with connect() as conn:
+        ok = delete_supplier(conn, supplier_id)
+    if not ok:
+        print(f"ERROR: 공급처 {supplier_id} 못 찾음", file=sys.stderr)
+        return 1
+    print(f"✓ 공급처 {supplier_id} 삭제 (연결 컨택도 함께 정리)")
+    return 0
+
+
+def cmd_supplier_list(category: str | None, status: str | None) -> int:
+    with connect() as conn:
+        rows = list_suppliers(conn, category=category, status=status)
+    if not rows:
+        print("(공급처 없음)")
+        return 0
+    for r in rows:
+        line = f"{r['id'][:10]}  {r['name']}"
+        if r["category"]: line += f"  [{r['category']}]"
+        if r["scale"]:    line += f"  ({r['scale']})"
+        if r["address"]:  line += f"  · {r['address']}"
+        if r["phone"]:    line += f"  · {r['phone']}"
+        print(line)
+    print(f"\n총 {len(rows)}곳")
+    return 0
+
+
+def cmd_supplier_import(file_path: str) -> int:
+    """JSON 파일에서 공급처 일괄 임포트. 입력 형식:
+    [
+      {"name": "...", "phone": "...", "category": "떡류", ...},
+      ...
+    ]
+    """
+    import json as _json
+    p = Path(file_path)
+    if not p.exists():
+        print(f"ERROR: 파일 없음 — {file_path}", file=sys.stderr)
+        return 1
+    try:
+        rows = _json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"ERROR: JSON 파싱 실패 — {e}", file=sys.stderr)
+        return 1
+    if not isinstance(rows, list):
+        print("ERROR: 최상위가 list 여야 함", file=sys.stderr)
+        return 1
+    with connect() as conn:
+        added, skipped = bulk_import_suppliers(conn, rows)
+    print(f"✓ 임포트: 신규 {added}곳 / 중복(skip) {skipped}곳")
+    return 0
+
+
+def _product_kwargs(args) -> dict:
+    fields = {}
+    for k in (
+        "name", "category", "spec_notes", "target_launch_date",
+        "target_event_id", "status", "notes",
+    ):
+        v = getattr(args, k, None)
+        if v is not None:
+            fields[k] = v
+    # target_channels 은 CSV 로 받음
+    tc = getattr(args, "target_channels", None)
+    if tc:
+        fields["target_channels"] = [s.strip() for s in tc.split(",") if s.strip()]
+    return fields
+
+
+def cmd_product_add(args) -> int:
+    fields = _product_kwargs(args)
+    if not fields.get("name"):
+        print("ERROR: --name 필수", file=sys.stderr)
+        return 1
+    with connect() as conn:
+        pid = add_product(conn, **fields)
+    print(f"✓ 신제품 {pid} 추가: {fields['name']}")
+    return 0
+
+
+def cmd_product_update(args) -> int:
+    fields = _product_kwargs(args)
+    if not fields:
+        print("ERROR: 수정할 필드 없음", file=sys.stderr)
+        return 1
+    with connect() as conn:
+        ok = update_product(conn, args.product_id, **fields)
+    if not ok:
+        print(f"ERROR: 신제품 {args.product_id} 못 찾음", file=sys.stderr)
+        return 1
+    print(f"✓ 신제품 {args.product_id} 수정 ({len(fields)}개 필드)")
+    return 0
+
+
+def cmd_product_delete(product_id: str) -> int:
+    with connect() as conn:
+        ok = delete_product(conn, product_id)
+    if not ok:
+        print(f"ERROR: 신제품 {product_id} 못 찾음", file=sys.stderr)
+        return 1
+    print(f"✓ 신제품 {product_id} 삭제 (연결 컨택도 함께 정리)")
+    return 0
+
+
+def cmd_product_list(status: str | None) -> int:
+    with connect() as conn:
+        rows = list_products(conn, status=status)
+    if not rows:
+        print("(신제품 없음)")
+        return 0
+    for r in rows:
+        st = PRODUCT_STATUS_LABELS.get(r["status"], r["status"])
+        line = f"{r['id'][:10]}  [{st}]  {r['name']}"
+        if r["target_launch_date"]: line += f"  → 출시:{r['target_launch_date']}"
+        if r["category"]: line += f"  · {r['category']}"
+        print(line)
+    print(f"\n총 {len(rows)}개")
+    return 0
+
+
+def _sourcing_kwargs(args) -> dict:
+    fields = {}
+    for k in (
+        "status", "next_action", "quoted_unit_price", "quoted_moq",
+        "sample_received_at", "sample_notes", "notes",
+    ):
+        v = getattr(args, k, None)
+        if v is not None:
+            fields[k] = v
+    # --contacted 가 있으면 last_contacted_at 명시
+    if getattr(args, "contacted_now", False):
+        fields["last_contacted_at"] = datetime.now().isoformat()
+    return fields
+
+
+def cmd_sourcing_add(args) -> int:
+    fields = _sourcing_kwargs(args)
+    with connect() as conn:
+        if not get_product(conn, args.product_id):
+            print(f"ERROR: 신제품 {args.product_id} 없음", file=sys.stderr)
+            return 1
+        if not get_supplier(conn, args.supplier_id):
+            print(f"ERROR: 공급처 {args.supplier_id} 없음", file=sys.stderr)
+            return 1
+        try:
+            cid = add_sourcing_contact(conn, args.product_id, args.supplier_id, **fields)
+        except Exception as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+    print(f"✓ 컨택 #{cid} 추가 ({args.product_id[:10]} × {args.supplier_id[:10]})")
+    return 0
+
+
+def cmd_sourcing_update(args) -> int:
+    fields = _sourcing_kwargs(args)
+    if not fields:
+        print("ERROR: 수정할 필드 없음", file=sys.stderr)
+        return 1
+    with connect() as conn:
+        ok = update_sourcing_contact(conn, args.contact_id, **fields)
+    if not ok:
+        print(f"ERROR: 컨택 #{args.contact_id} 못 찾음", file=sys.stderr)
+        return 1
+    print(f"✓ 컨택 #{args.contact_id} 수정")
+    return 0
+
+
+def cmd_sourcing_delete(contact_id: int) -> int:
+    with connect() as conn:
+        ok = delete_sourcing_contact(conn, contact_id)
+    if not ok:
+        print(f"ERROR: 컨택 #{contact_id} 못 찾음", file=sys.stderr)
+        return 1
+    print(f"✓ 컨택 #{contact_id} 삭제")
+    return 0
+
+
+def cmd_sourcing_list(product_id: str | None) -> int:
+    with connect() as conn:
+        rows = list_sourcing_contacts(conn, product_id=product_id)
+    if not rows:
+        print("(컨택 없음)")
+        return 0
+    for r in rows:
+        st = SOURCING_STATUS_LABELS.get(r["status"], r["status"])
+        stale = compute_sourcing_stale(
+            r["last_contacted_at"], r["status"], r["product_launch_date"]
+        )
+        flag = " ⚠️" if stale["stale"] else ""
+        line = (
+            f"#{r['id']:>3d}  [{st}]  {r['product_name']} × {r['supplier_name']}"
+            f"{flag}"
+        )
+        if r["last_contacted_at"]:
+            line += f"  마지막:{r['last_contacted_at'][:10]}"
+        if r["quoted_unit_price"]:
+            line += f"  단가:{int(r['quoted_unit_price']):,}"
+        print(line)
+        if r["next_action"]:
+            print(f"      → {r['next_action']}")
+    print(f"\n총 {len(rows)}건")
+    return 0
+
+
 def cmd_stats() -> int:
     with connect() as conn:
         s = stats(conn)
@@ -1600,6 +1898,90 @@ def main() -> None:
     pad.add_argument("--vendor-contact", default=None, help="업체 연락처")
     pad.add_argument("--owner", default=None, help="담당 MD 이름")
 
+    # ---- 소싱 보드 ----
+    def _add_supplier_args(parser, name_required: bool) -> None:
+        parser.add_argument(
+            "--name", required=name_required, help="공장/상호명"
+        )
+        parser.add_argument("--contact-person", dest="contact_person", default=None, help="담당자")
+        parser.add_argument("--phone", default=None)
+        parser.add_argument("--email", default=None)
+        parser.add_argument("--kakao", dest="kakao_id", default=None)
+        parser.add_argument("--address", default=None, help="소재지(시·도)")
+        parser.add_argument("--category", default=None, help="떡류/냉동떡/한과/포장재/기타")
+        parser.add_argument("--scale", default=None, choices=[None, "소규모(공방)", "중소", "중대형"])
+        parser.add_argument("--moq", type=int, default=None)
+        parser.add_argument("--lead-time", dest="lead_time_days", type=int, default=None)
+        parser.add_argument("--source", default=None, help="발굴 출처")
+        parser.add_argument("--homepage", default=None)
+        parser.add_argument("--notes", default=None)
+        parser.add_argument("--status", default=None, choices=[None, *SUPPLIER_STATUS_VALUES])
+
+    psupa = sp.add_parser("supplier-add", help="공급처(공장) 추가")
+    _add_supplier_args(psupa, name_required=True)
+
+    psupu = sp.add_parser("supplier-update", help="공급처 수정")
+    psupu.add_argument("supplier_id")
+    _add_supplier_args(psupu, name_required=False)
+
+    psupd = sp.add_parser("supplier-del", help="공급처 삭제 (연결 컨택 포함)")
+    psupd.add_argument("supplier_id")
+
+    psupl = sp.add_parser("supplier-list", help="공급처 목록")
+    psupl.add_argument("--category", default=None)
+    psupl.add_argument("--status", default=None, choices=[None, *SUPPLIER_STATUS_VALUES])
+
+    psupi = sp.add_parser("supplier-import", help="공급처 JSON 파일 일괄 임포트")
+    psupi.add_argument("file_path", help="JSON 배열 파일 경로")
+
+    def _add_product_args(parser, name_required: bool) -> None:
+        parser.add_argument("--name", required=name_required, help="신제품명")
+        parser.add_argument("--category", default=None, help="떡류/냉동떡/한과/기타")
+        parser.add_argument("--spec-notes", dest="spec_notes", default=None, help="스펙·컨셉 메모")
+        parser.add_argument("--launch", dest="target_launch_date", default=None, help="출시 목표일 YYYY-MM-DD")
+        parser.add_argument("--event", dest="target_event_id", default=None, help="연결 행사 dedup_id (옵션)")
+        parser.add_argument("--channels", dest="target_channels", default=None, help="타겟 채널 (CSV)")
+        parser.add_argument("--status", default=None, choices=[None, *PRODUCT_STATUS_VALUES])
+        parser.add_argument("--notes", default=None)
+
+    pprda = sp.add_parser("product-add", help="신제품 추가")
+    _add_product_args(pprda, name_required=True)
+
+    pprdu = sp.add_parser("product-update", help="신제품 수정")
+    pprdu.add_argument("product_id")
+    _add_product_args(pprdu, name_required=False)
+
+    pprdd = sp.add_parser("product-del", help="신제품 삭제 (연결 컨택 포함)")
+    pprdd.add_argument("product_id")
+
+    pprdl = sp.add_parser("product-list", help="신제품 목록")
+    pprdl.add_argument("--status", default=None, choices=[None, *PRODUCT_STATUS_VALUES])
+
+    def _add_sourcing_args(parser) -> None:
+        parser.add_argument("--status", default=None, choices=[None, *SOURCING_STATUS_VALUES])
+        parser.add_argument("--next", dest="next_action", default=None, help="다음 액션")
+        parser.add_argument("--price", dest="quoted_unit_price", type=int, default=None, help="견적 단가(원)")
+        parser.add_argument("--moq", dest="quoted_moq", type=int, default=None, help="견적 MOQ")
+        parser.add_argument("--sample-received", dest="sample_received_at", default=None, help="샘플 수령일")
+        parser.add_argument("--sample-notes", dest="sample_notes", default=None)
+        parser.add_argument("--notes", default=None)
+        parser.add_argument("--contacted-now", dest="contacted_now", action="store_true", help="마지막 컨택을 지금으로 갱신")
+
+    psca = sp.add_parser("sourcing-add", help="신제품 × 공급처 컨택 등록")
+    psca.add_argument("product_id")
+    psca.add_argument("supplier_id")
+    _add_sourcing_args(psca)
+
+    pscu = sp.add_parser("sourcing-update", help="컨택 진척 갱신")
+    pscu.add_argument("contact_id", type=int)
+    _add_sourcing_args(pscu)
+
+    pscd = sp.add_parser("sourcing-del", help="컨택 row 삭제")
+    pscd.add_argument("contact_id", type=int)
+
+    pscl = sp.add_parser("sourcing-list", help="컨택 목록")
+    pscl.add_argument("--product", dest="product_id", default=None)
+
     args = p.parse_args()
     if args.cmd is None or args.cmd == "crawl":
         sys.exit(cmd_crawl(getattr(args, "channel", None), getattr(args, "doa_only", False)))
@@ -1732,6 +2114,32 @@ def main() -> None:
             n_check, n_updated = infer_event_types(conn, only_null=not args.all)
         print(f"✓ {n_check}건 검사 · {n_updated}건 event_type 자동 갱신")
         sys.exit(0)
+    elif args.cmd == "supplier-add":
+        sys.exit(cmd_supplier_add(args))
+    elif args.cmd == "supplier-update":
+        sys.exit(cmd_supplier_update(args))
+    elif args.cmd == "supplier-del":
+        sys.exit(cmd_supplier_delete(args.supplier_id))
+    elif args.cmd == "supplier-list":
+        sys.exit(cmd_supplier_list(args.category, args.status))
+    elif args.cmd == "supplier-import":
+        sys.exit(cmd_supplier_import(args.file_path))
+    elif args.cmd == "product-add":
+        sys.exit(cmd_product_add(args))
+    elif args.cmd == "product-update":
+        sys.exit(cmd_product_update(args))
+    elif args.cmd == "product-del":
+        sys.exit(cmd_product_delete(args.product_id))
+    elif args.cmd == "product-list":
+        sys.exit(cmd_product_list(args.status))
+    elif args.cmd == "sourcing-add":
+        sys.exit(cmd_sourcing_add(args))
+    elif args.cmd == "sourcing-update":
+        sys.exit(cmd_sourcing_update(args))
+    elif args.cmd == "sourcing-del":
+        sys.exit(cmd_sourcing_delete(args.contact_id))
+    elif args.cmd == "sourcing-list":
+        sys.exit(cmd_sourcing_list(args.product_id))
 
 
 if __name__ == "__main__":

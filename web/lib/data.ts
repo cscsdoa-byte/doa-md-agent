@@ -132,6 +132,82 @@ export interface ChannelMaster {
   created_at: string;
 }
 
+export interface Supplier {
+  id: string;
+  name: string;
+  contact_person: string | null;
+  phone: string | null;
+  email: string | null;
+  kakao_id: string | null;
+  address: string | null;          // 시·도 등
+  category: string | null;         // 떡류 / 냉동떡 / 한과 / 포장재 / 기타
+  scale: string | null;            // 소규모(공방) / 중소 / 중대형
+  moq: number | null;
+  lead_time_days: number | null;
+  source: string | null;           // 발굴 출처
+  homepage: string | null;
+  notes: string | null;
+  status: string;                  // candidate / active / paused / dropped
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SourcingProduct {
+  id: string;
+  name: string;
+  category: string | null;
+  spec_notes: string | null;
+  target_launch_date: string | null;
+  target_event_id: string | null;
+  target_channels: string[] | null;
+  status: string;                  // planning / sourcing / sample / decided / launched / dropped
+  status_label: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SourcingStale {
+  stale: boolean;
+  days_since: number | null;
+  threshold: number;
+}
+
+export interface SourcingContact {
+  id: number;
+  product_id: string;
+  supplier_id: string;
+  status: string;                  // not_sent / sent_waiting / replied / sample / negotiating / confirmed / on_hold / rejected
+  status_label: string;
+  last_contacted_at: string | null;
+  next_action: string | null;
+  quoted_unit_price: number | null;
+  quoted_moq: number | null;
+  sample_received_at: string | null;
+  sample_notes: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  // join 으로 합쳐진 필드
+  supplier_name: string;
+  supplier_phone: string | null;
+  supplier_contact_person: string | null;
+  product_name: string;
+  product_launch_date: string | null;
+  stale: SourcingStale;
+}
+
+export interface SourcingPayload {
+  suppliers: Supplier[];
+  products: SourcingProduct[];
+  contacts: SourcingContact[];
+  status_labels: {
+    supplier: Record<string, string>;
+    product: Record<string, string>;
+    contact: Record<string, string>;
+  };
+}
+
 export interface EventsPayload {
   generated_at: string;
   total: number;
@@ -149,6 +225,7 @@ export interface EventsPayload {
   cs_repeat?: CsRepeatCaller[];
   ad_comments?: AdComment[];
   ad_comment_stats?: AdCommentStats;
+  sourcing?: SourcingPayload;
 }
 
 export interface AdComment {
