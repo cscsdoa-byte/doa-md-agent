@@ -147,6 +147,34 @@ export interface EventsPayload {
   cs_canned?: CsTopQuestion[];
   cs_critical?: CsCriticalGroup[];
   cs_repeat?: CsRepeatCaller[];
+  ad_comments?: AdComment[];
+  ad_comment_stats?: AdCommentStats;
+}
+
+export interface AdComment {
+  id: number;
+  platform: string;
+  post_url?: string | null;
+  post_label?: string | null;
+  comment_text: string;
+  author?: string | null;
+  posted_at?: string | null;
+  sentiment?: string | null;
+  severity?: number;
+  keywords?: string | null;
+  flagged?: number;
+  handled?: number;
+  notes?: string | null;
+  imported_at: string;
+}
+
+export interface AdCommentStats {
+  total: number;
+  danger: number;
+  negative: number;
+  warning: number;
+  unhandled_high: number;
+  by_platform: Record<string, number>;
 }
 
 export interface CsCriticalGroup {

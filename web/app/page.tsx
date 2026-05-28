@@ -126,6 +126,13 @@ export default async function Home() {
               💬 댓글
             </Link>
             <Link
+              href="/channels"
+              className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
+              title="채널 종합 운영 보드"
+            >
+              📡 채널
+            </Link>
+            <Link
               href="/templates"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
             >
