@@ -27,9 +27,19 @@ export async function POST(request: NextRequest) {
     const args = ["import-cs", tmpPath];
     if (clearAll) args.push("--clear");
     const { stdout } = await runCli(args);
+
+    // 자동 학습 — 새 답변 반영해 상품 KB 스마트 재빌드 (변화 큰 상품만)
+    let kbLog = "";
+    try {
+      const kb = await runCli(["build-product-kb", "--smart"]);
+      kbLog = kb.stdout;
+    } catch (e) {
+      kbLog = `(KB build skipped: ${(e as Error).message})`;
+    }
+
     await refreshDump();
     await unlink(tmpPath).catch(() => {});
-    return NextResponse.json({ ok: true, stdout });
+    return NextResponse.json({ ok: true, stdout, kb_log: kbLog });
   } catch (e) {
     const err = e as Error & { stderr?: string };
     await unlink(tmpPath).catch(() => {});

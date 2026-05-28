@@ -8,6 +8,7 @@ import { apiUrl } from "@/lib/api";
 interface UploadResult {
   ok?: boolean;
   stdout?: string;
+  kb_log?: string;
   error?: string;
   stderr?: string;
 }
@@ -165,9 +166,17 @@ export default function CsUploadPage() {
                 {result.stderr && <pre className="mt-2 text-xs overflow-auto">{result.stderr}</pre>}
               </div>
             ) : (
-              <div className="bg-emerald-50 border border-emerald-200 rounded p-3 text-sm">
-                ✅ <b>성공</b>
-                {result.stdout && <pre className="mt-2 text-xs overflow-auto whitespace-pre-wrap">{result.stdout}</pre>}
+              <div className="space-y-2">
+                <div className="bg-emerald-50 border border-emerald-200 rounded p-3 text-sm">
+                  ✅ <b>업로드 성공</b>
+                  {result.stdout && <pre className="mt-2 text-xs overflow-auto whitespace-pre-wrap text-slate-700">{result.stdout}</pre>}
+                </div>
+                {result.kb_log && (
+                  <div className="bg-indigo-50 border border-indigo-200 rounded p-3 text-sm">
+                    🧠 <b>상품 지식 자동 학습</b> (변화 있는 상품만 재빌드 — incremental)
+                    <pre className="mt-2 text-xs overflow-auto whitespace-pre-wrap text-slate-700">{result.kb_log}</pre>
+                  </div>
+                )}
               </div>
             )}
           </div>

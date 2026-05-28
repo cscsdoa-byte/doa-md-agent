@@ -410,17 +410,22 @@ def cmd_cs_similar_replies(customer_message: str, limit: int = 5) -> int:
     return 0
 
 
-def cmd_build_product_kb(force: bool = False) -> int:
+def cmd_build_product_kb(force: bool = False, smart: bool = False) -> int:
     """조선팔도떡집 11종 상품 지식 베이스 자동 빌드.
 
-    각 상품마다 cs_messages 발신 답변 ~50건을 Claude 에게 보여주고 요약 받음.
-    결과를 data/product_kb.json 에 저장 → dump-json 에 포함되어 AI route 컨텍스트로 사용.
+    매일 cs-upload 후 호출되어 새 답변 반영.
 
-    Claude API 11회 호출. ANTHROPIC_API_KEY 필요.
+    모드:
+    - 기본 (smart=False, force=False): 기존 KB 없는 상품만 신규 빌드
+    - smart (--smart): 답변 수 10%+ 늘었거나 7일+ 된 상품만 재빌드 (incremental)
+    - force (--force): 11종 전체 재빌드
+
+    Claude API 호출 횟수 = 빌드 대상 수.
     """
     import os
     import json as _j
     import httpx
+    from datetime import datetime, timedelta
     from pathlib import Path
     from dotenv import load_dotenv
     from .store import connect, JOSEON_PRODUCTS, cs_product_all_replies
@@ -435,6 +440,25 @@ def cmd_build_product_kb(force: bool = False) -> int:
     existing: dict = {}
     if kb_path.exists() and not force:
         existing = _j.loads(kb_path.read_text(encoding="utf-8"))
+
+    def needs_rebuild(product: str, new_reply_count: int) -> tuple[bool, str]:
+        """smart 모드 재빌드 판단."""
+        if product not in existing:
+            return True, "신규"
+        prev = existing[product]
+        prev_n = prev.get("_reply_count", 0)
+        prev_built = prev.get("_built_at", "")
+        # 답변 수 10%+ 변화
+        if prev_n == 0 or abs(new_reply_count - prev_n) / max(prev_n, 1) >= 0.1:
+            return True, f"답변수 변화 {prev_n}→{new_reply_count}"
+        # 7일 이상 된 KB
+        try:
+            built = datetime.fromisoformat(prev_built)
+            if datetime.now() - built > timedelta(days=7):
+                return True, f"7일+ 경과"
+        except Exception:
+            return True, "빌드일 불명"
+        return False, "최신"
 
     SYSTEM = """당신은 조선팔도떡집 상품 데이터 분석가입니다.
 아래는 CS 상담사가 해당 상품에 대해 실제 고객에게 보낸 답변들입니다.
@@ -459,17 +483,31 @@ JSON 외 텍스트 X."""
     n_skipped = 0
     with connect() as conn:
         for product in JOSEON_PRODUCTS:
-            if not force and product in existing:
-                print(f"  - {product}: skip (기존 KB 사용, --force 로 갱신)")
-                n_skipped += 1
-                continue
             replies = cs_product_all_replies(conn, product, max_rows=40)
             if not replies:
-                print(f"  - {product}: 답변 0건 → 스킵")
+                if product not in existing:
+                    print(f"  - {product}: 답변 0건 → 스킵")
                 continue
+
+            # 빌드 여부 판단
+            if force:
+                reason = "전체 재빌드"
+            elif smart:
+                build, reason = needs_rebuild(product, len(replies))
+                if not build:
+                    print(f"  - {product}: skip ({reason})")
+                    n_skipped += 1
+                    continue
+            else:
+                # 기본: 신규만
+                if product in existing:
+                    print(f"  - {product}: skip (이미 있음, --smart 또는 --force 로 갱신)")
+                    n_skipped += 1
+                    continue
+                reason = "신규"
             joined = "\n---\n".join(replies[:40])
             user_content = f"상품: {product}\n\nCS 답변 {len(replies)}건:\n\n{joined}"
-            print(f"  - {product}: 답변 {len(replies)}건 → Claude 호출 중…")
+            print(f"  - {product}: {reason} · 답변 {len(replies)}건 → Claude 호출 중…")
             try:
                 resp = httpx.post(
                     "https://api.anthropic.com/v1/messages",
@@ -507,6 +545,7 @@ JSON 외 텍스트 X."""
                     "caveats": parsed.get("caveats") or [],
                     "frequent_phrases": parsed.get("frequent_phrases") or [],
                     "_reply_count": len(replies),
+                    "_built_at": datetime.now().isoformat(),
                 }
                 n_built += 1
                 print(f"    ✓ {parsed.get('summary', '(요약 없음)')[:60]}")
@@ -1482,8 +1521,9 @@ def main() -> None:
     pcsa = sp.add_parser("cs-analyze", help="인입 메시지 종합 분석 (intent+sentiment+추출+과거답변) JSON")
     pcsa.add_argument("customer_message")
 
-    pbkb = sp.add_parser("build-product-kb", help="조선팔도떡집 11종 상품 지식 베이스 빌드 (cs_messages + Claude 요약 → data/product_kb.json)")
-    pbkb.add_argument("--force", action="store_true", help="기존 KB 무시하고 전체 재빌드")
+    pbkb = sp.add_parser("build-product-kb", help="조선팔도떡집 11종 상품 지식 베이스 빌드")
+    pbkb.add_argument("--force", action="store_true", help="11종 전체 재빌드")
+    pbkb.add_argument("--smart", action="store_true", help="답변수 10%+ 변화 또는 7일+ 된 상품만 재빌드 (incremental)")
 
     psim = sp.add_parser("save-simulation", help="마진 시뮬레이터 입력값을 행사 simulation_json 에 스냅샷 저장")
     psim.add_argument("id_prefix")
@@ -1553,7 +1593,7 @@ def main() -> None:
     elif args.cmd == "cs-analyze":
         sys.exit(cmd_cs_analyze(args.customer_message))
     elif args.cmd == "build-product-kb":
-        sys.exit(cmd_build_product_kb(args.force))
+        sys.exit(cmd_build_product_kb(args.force, args.smart))
     elif args.cmd == "save-simulation":
         sys.exit(cmd_save_simulation(
             args.id_prefix, args.price, args.cost, args.ship,

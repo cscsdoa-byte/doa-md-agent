@@ -38,6 +38,7 @@ if not "%EXIT%"=="0" (
 type "%TEMP%\cs_upload_result.json"
 echo.
 echo.
-echo ✓ 완료 — 브라우저에서 http://3.37.214.243/md/ 새로고침
+echo ✓ 업로드 완료 — 새 답변으로 상품 KB 자동 학습됨 (cs-upload route 가 build-product-kb --smart 호출)
+echo   브라우저에서 http://3.37.214.243/md/ 새로고침
 echo.
-timeout /t 3 >nul
+timeout /t 5 >nul
