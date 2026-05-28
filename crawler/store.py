@@ -855,13 +855,64 @@ def cs_critical_issues(
     return out
 
 
-# 조선팔도떡집 핵심 상품 키워드 (cs_analyze_message + cs_product_replies 에서 사용)
-JOSEON_PRODUCTS = [
-    "두쫀모", "두바이쫀득", "두쫀쿠",
-    "쑥콩버무리", "쑥콩설기", "쑥버무리",
-    "밤설기", "서리태설기",
-    "딸기모찌", "비타베리", "오트메딘",
-]
+# 조선팔도떡집 정식 상품 (정산자동화웹 SKU 기준, 공급사 "새봄") + 도아 브랜드.
+# alias = 고객/광고에서 자주 쓰는 별칭/줄임말 — 추출·매칭 시 정식명으로 매핑.
+PRODUCT_REGISTRY: dict[str, dict] = {
+    # 떡 6종 (정산자동화웹 SKU 확인 완료)
+    "두바이쫀득모찌": {
+        "category": "떡",
+        "aliases": ["두쫀모", "두바이쫀득", "두바이쫀득모찌"],
+        "skus": ["두바이쫀득모찌 6개", "두바이쫀득모찌 10개", "두바이쫀득모찌 20개"],
+    },
+    "밤설기": {
+        "category": "떡",
+        "aliases": ["밤설기", "통밤설기"],
+        "skus": ["밤설기 800g", "밤설기 1.6kg"],
+    },
+    "비타베리딸기모찌": {
+        "category": "떡",
+        "aliases": ["딸기모찌", "비타베리", "비타베리딸기모찌"],
+        "skus": ["비타베리딸기모찌 1박스 (6개입)", "비타베리딸기모찌 6개"],
+    },
+    "쑥콩설기": {
+        "category": "떡",
+        "aliases": ["쑥콩설기"],
+        "skus": ["쑥콩설기 1kg", "쑥콩설기 2kg"],
+    },
+    "쑥콩버무리": {
+        "category": "떡",
+        "aliases": ["쑥콩버무리"],
+        "skus": ["쑥콩버무리 1kg", "쑥콩버무리 2kg"],
+    },
+    "쑥버무리": {
+        "category": "떡",
+        "aliases": ["쑥버무리"],
+        "skus": ["쑥버무리 1kg", "쑥버무리 2kg"],
+    },
+    # 시즌·자사몰 한정 (SKU 미등록이지만 자사몰엔 있음)
+    "서리태설기": {
+        "category": "떡",
+        "aliases": ["서리태설기"],
+        "skus": [],
+        "season_only": True,
+    },
+    # ※ 오트메딘 등 도아 다른 브랜드는 별도 — 조선팔도떡집 떡 라인업만 관리.
+}
+
+# 정식명 리스트 (build-product-kb 등에서 사용)
+JOSEON_PRODUCTS = list(PRODUCT_REGISTRY.keys())
+
+# alias → 정식명 빠른 lookup
+PRODUCT_ALIAS_MAP: dict[str, str] = {}
+for canonical, info in PRODUCT_REGISTRY.items():
+    for alias in info.get("aliases", []):
+        PRODUCT_ALIAS_MAP[alias] = canonical
+    PRODUCT_ALIAS_MAP[canonical] = canonical
+
+
+def canonicalize_product(name: str) -> str:
+    """별칭/줄임말 → 정식명. 없으면 원본 반환."""
+    return PRODUCT_ALIAS_MAP.get(name, name)
 
 
 def cs_product_all_replies(
@@ -1020,17 +1071,13 @@ def cs_analyze_message(
     dates = []
     for m in _re.finditer(r"\d{1,2}월\s*\d{1,2}일|\d{1,2}/\d{1,2}", msg):
         dates.append(m.group(0))
-    # 상품명 — 조선팔도떡집 핵심 상품
-    product_kws = [
-        "두쫀모", "두바이쫀득", "두쫀쿠",
-        "쑥콩버무리", "쑥콩설기", "쑥버무리",
-        "밤설기", "서리태설기",
-        "딸기모찌", "비타베리", "오트메딘",
-    ]
-    products = []
-    for p in product_kws:
-        if p in msg:
-            products.append(p)
+    # 상품명 — alias 포함 모두 검색 후 정식명으로 매핑·중복 제거
+    products: list[str] = []
+    seen: set[str] = set()
+    for alias, canonical in PRODUCT_ALIAS_MAP.items():
+        if alias in msg and canonical not in seen:
+            products.append(canonical)
+            seen.add(canonical)
 
     extracted = {
         "order_ids": order_ids,

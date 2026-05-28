@@ -469,17 +469,32 @@ def main() -> None:
         print(f"[notify] 오늘 이미 알린 행사만 있음 — 슬랙 전송 생략 ({len(notified)}건)")
         return
 
+    # 발송 방식: 1순위 Bot API (SLACK_BOT_TOKEN + SLACK_CHANNEL_ID), 2순위 Incoming Webhook
+    bot_token = os.getenv("SLACK_BOT_TOKEN", "").strip()
+    channel_id = os.getenv("SLACK_CHANNEL_ID", "").strip()
     webhook = os.getenv("SLACK_WEBHOOK_URL", "").strip()
-    if not webhook:
-        print("ERROR: SLACK_WEBHOOK_URL 이 .env 에 없음", file=sys.stderr)
+
+    if bot_token and channel_id:
+        r = httpx.post(
+            "https://slack.com/api/chat.postMessage",
+            headers={"Authorization": f"Bearer {bot_token}", "Content-Type": "application/json; charset=utf-8"},
+            json={"channel": channel_id, "text": message, "mrkdwn": True},
+            timeout=15,
+        )
+        body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        if not body.get("ok"):
+            print(f"ERROR: 슬랙 전송 실패 ({r.status_code}) — {body.get('error') or r.text[:200]}", file=sys.stderr)
+            sys.exit(1)
+    elif webhook:
+        r = httpx.post(webhook, json={"text": message}, timeout=15)
+        if r.status_code >= 400:
+            print(f"ERROR: 슬랙 webhook 전송 실패 {r.status_code}: {r.text[:200]}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print("ERROR: SLACK_BOT_TOKEN+SLACK_CHANNEL_ID 또는 SLACK_WEBHOOK_URL 둘 다 .env 에 없음", file=sys.stderr)
         print("\n--- 슬랙으로 보낼 내용 (dry) ---\n")
         print(message)
         sys.exit(2)
-
-    r = httpx.post(webhook, json={"text": message}, timeout=15)
-    if r.status_code >= 400:
-        print(f"ERROR: 슬랙 전송 실패 {r.status_code}: {r.text[:200]}", file=sys.stderr)
-        sys.exit(1)
 
     # state 갱신
     today_state.extend(new_items)
