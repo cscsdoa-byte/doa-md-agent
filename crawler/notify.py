@@ -330,20 +330,6 @@ def build_message() -> tuple[str, list[dict]]:
             )
         ]
 
-        # 회고 미작성 — closed 상태 + sale_end 지남 + ops_retro_note 비어있음.
-        # 너무 오래된 건 무한 누적되므로 sale_end 기준 14일 이내만 알림.
-        retro_pending = [
-            dict(r) for r in conn.execute(
-                "SELECT * FROM events "
-                "WHERE status = 'closed' "
-                "  AND sale_end IS NOT NULL "
-                "  AND date(sale_end) <= date('now') "
-                "  AND date(sale_end) >= date('now', '-14 days') "
-                "  AND (ops_retro_note IS NULL OR TRIM(ops_retro_note) = '') "
-                "ORDER BY sale_end DESC"
-            )
-        ]
-
     def _fmt(e: dict) -> str:
         ch = CHANNEL_NAMES.get(e["channel_key"], e["channel_key"])
         cat = f"[{e['category']}] " if e.get("category") else ""
@@ -377,13 +363,7 @@ def build_message() -> tuple[str, list[dict]]:
             lines.append(_fmt(e))
             notified.append({"id": e["dedup_id"], "kind": "nodl"})
 
-    if retro_pending:
-        lines.append(f"\n📝 *회고 작성 필요 — {len(retro_pending)}건* (종료 행사, 14일 이내)")
-        for e in retro_pending:
-            ch = CHANNEL_NAMES.get(e["channel_key"], e["channel_key"])
-            end = e["sale_end"][:10] if e["sale_end"] else "?"
-            lines.append(f"• *{ch}* {e['title'][:50]} — 종료 {end}")
-            notified.append({"id": e["dedup_id"], "kind": "retro_pending"})
+    # (중복 제거: retro_pending 알림은 아래 detect_retro_pending() 한 곳에서만 출력)
 
     # 셋업 누락 — 진행 중/임박 행사에 SKU 미등록 또는 매출 매칭 미실행
     setup_issues = detect_setup_incomplete()

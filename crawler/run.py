@@ -325,7 +325,16 @@ def cmd_sales(id_prefix: str, override_channels: list[str] | None, no_filter: bo
         elif override_channels:
             channels = override_channels
         else:
-            channels = _channel_settle_names(evt["channel_key"]) or None
+            channels = _channel_settle_names(evt["channel_key"])
+            if not channels:
+                print(
+                    f"ERROR: 채널 '{evt['channel_key']}' 는 정산자동화웹에 매핑된 채널이 없습니다.\n"
+                    f"       → 매출 매칭 시 다른 채널 매출이 섞일 위험이 큽니다.\n"
+                    f"       정산자동화웹에 해당 채널 데이터가 들어올 때까지 대기하거나,\n"
+                    f"       강제 실행하려면 --all-channels 또는 --channel <정산채널명> 지정.",
+                    file=sys.stderr,
+                )
+                return 2
 
         sku_names = [s.get("sku_name") for s in skus if s.get("sku_name")]
         result = fetch_event_sales(

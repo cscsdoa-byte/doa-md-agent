@@ -14,6 +14,7 @@ interface Props {
   yamlChannels: ChannelDef[];
   adComments: AdComment[];
   adCommentStats?: { total: number; danger: number; negative: number; warning: number; unhandled_high: number; by_platform: Record<string, number> };
+  productsByChannel: Record<string, { product: string; url: string }[]>;
 }
 
 // channels_master settle_name → yaml key 매핑 (events.channel_key 연결용)
@@ -54,7 +55,7 @@ function fmt(n: number): string {
 type SortBy = "sale" | "events" | "ad" | "name";
 
 export default function ChannelsBoard({
-  events, channelPL, channelsMaster, yamlChannels, adComments,
+  events, channelPL, channelsMaster, yamlChannels, adComments, productsByChannel,
 }: Props) {
   const [sortBy, setSortBy] = useState<SortBy>("sale");
   const [filterSales, setFilterSales] = useState(true);
@@ -247,6 +248,44 @@ export default function ChannelsBoard({
                   )}
                 </div>
               </div>
+
+              {/* 등록 상품 — 소비자 입장 채널 상품 페이지 링크 */}
+              {(() => {
+                // 채널명으로 productsByChannel 매칭 — display_name 우선, yaml_key fallback
+                // productsByChannel 의 키는 채널 이름 ("자사몰", "스마트스토어", "쿠팡" 등 channel_urls 등록시 라벨)
+                const productList =
+                  productsByChannel[r.display_name] ||
+                  productsByChannel[r.key] ||
+                  [];
+                if (productList.length === 0) {
+                  return (
+                    <div className="mt-2 pt-2 border-t border-slate-100">
+                      <div className="text-[10px] text-slate-400">
+                        📦 등록 상품 없음 — <Link href="/products" className="text-blue-600 hover:underline">상품 페이지</Link>에서 URL 추가
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="mt-2 pt-2 border-t border-slate-100">
+                    <div className="text-[10px] text-slate-500 mb-1.5">📦 등록 상품 {productList.length}개 (소비자 페이지)</div>
+                    <div className="flex flex-wrap gap-1">
+                      {productList.map(({ product, url }) => (
+                        <a
+                          key={product}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] px-2 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 hover:border-blue-300 rounded font-semibold"
+                          title={url}
+                        >
+                          {product} ↗
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
