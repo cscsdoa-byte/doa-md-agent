@@ -831,7 +831,7 @@ def cmd_dump_json(out_path: str | None) -> int:
         "cs_repeat": cs_repeat,
         "product_kb": product_kb,
         "ad_comments": ad_comments_recent,
-        "ad_comment_stats": ad_comment_stats_obj,
+        "ad_comment_stats": ad_comments_stats_obj,
     }
     target.write_text(_json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"✓ dump: {target}  ({len(items)}건)")
