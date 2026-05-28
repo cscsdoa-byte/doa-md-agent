@@ -503,7 +503,7 @@ export default function EventsTable({ events, contacts, channelOptions }: Props)
                     <div>매출 <b>{Math.round(selectedDetail.sales.totals.sale).toLocaleString()}</b>원</div>
                     <div>주문 <b>{selectedDetail.sales.totals.orders ?? 0}</b> / 수량 <b>{selectedDetail.sales.totals.qty ?? 0}</b></div>
                     <div>영업이익 <b className="text-emerald-700">{Math.round(selectedDetail.sales.totals.operating_profit ?? 0).toLocaleString()}</b>원</div>
-                    <div>광고비 <b className="text-rose-600">{Math.round((selectedDetail.sales.totals.ad_cost ?? selectedDetail.sales.totals.ad_spend) ?? 0).toLocaleString()}</b>원</div>
+                    <div>광고비 <b className="text-rose-600">{Math.round(selectedDetail.ad_spend_manual && selectedDetail.ad_spend_manual > 0 ? selectedDetail.ad_spend_manual : 0).toLocaleString()}</b>원{!(selectedDetail.ad_spend_manual && selectedDetail.ad_spend_manual > 0) && <span className="text-[10px] text-gray-500 ml-1">(미입력)</span>}</div>
                   </div>
                   {selectedDetail.sales_synced_at && (
                     <div className="text-[10px] text-amber-700 mt-1">갱신 {selectedDetail.sales_synced_at.slice(0, 16).replace("T", " ")}</div>

@@ -50,7 +50,7 @@ export default function ReportCard({ event }: Props) {
   const op = t?.operating_profit ?? 0;
   const ad = event.ad_spend_manual && event.ad_spend_manual > 0
     ? event.ad_spend_manual
-    : (t?.ad_cost ?? t?.ad_spend ?? 0);
+    : 0;
   const netProfit = op - ad;
   const margin = sale ? (op / sale) * 100 : 0;
   const netMargin = sale ? (netProfit / sale) * 100 : 0;
