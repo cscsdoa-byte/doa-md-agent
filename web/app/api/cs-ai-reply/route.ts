@@ -25,16 +25,33 @@ interface SimilarReply {
   count: number;
 }
 
+// KB 필드는 string / array / object 다 혼재 가능 (Claude 가 자유 형식으로 반환했기 때문)
 interface ProductKb {
-  summary?: string;
-  features?: string[];
-  storage_shelf_life?: string;
-  packaging_options?: string[];
-  pricing_hints?: string[];
-  common_concerns?: string[];
-  pair_recommendations?: string[];
-  caveats?: string[];
-  frequent_phrases?: string[];
+  summary?: string | null;
+  features?: unknown;
+  storage_shelf_life?: unknown;
+  packaging_options?: unknown;
+  pricing_hints?: unknown;
+  common_concerns?: unknown;
+  pair_recommendations?: unknown;
+  caveats?: unknown;
+  frequent_phrases?: unknown;
+}
+
+function flattenKbField(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) return v.map((x) => flattenKbField(x)).filter(Boolean).join(" / ");
+  if (typeof v === "object") {
+    const parts: string[] = [];
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      const sub = flattenKbField(val);
+      if (sub) parts.push(`${k}: ${sub}`);
+    }
+    return parts.join(" / ");
+  }
+  return "";
 }
 
 interface Analysis {
@@ -212,27 +229,20 @@ export async function POST(request: NextRequest) {
       const k = kb?.[product];
       if (k) {
         if (k.summary) lines.push(`  · 요약: ${k.summary}`);
-        if (k.features?.length) lines.push(`  · 특징: ${k.features.join(" / ")}`);
-        if (k.storage_shelf_life) {
-          // storage_shelf_life 가 객체 또는 문자열일 수 있음
-          const s = typeof k.storage_shelf_life === "string"
-            ? k.storage_shelf_life
-            : JSON.stringify(k.storage_shelf_life);
-          lines.push(`  · 보관·유통: ${s}`);
+        const fields: { label: string; v: unknown }[] = [
+          { label: "특징", v: k.features },
+          { label: "가격", v: k.pricing_hints },
+          { label: "구성", v: k.packaging_options },
+          { label: "보관·유통", v: k.storage_shelf_life },
+          { label: "주의", v: k.caveats },
+          { label: "자주 묻는 점", v: k.common_concerns },
+          { label: "어울리는", v: k.pair_recommendations },
+          { label: "회사 자주 쓰는 표현", v: k.frequent_phrases },
+        ];
+        for (const f of fields) {
+          const flat = flattenKbField(f.v);
+          if (flat) lines.push(`  · ${f.label}: ${flat}`);
         }
-        if (k.packaging_options?.length) lines.push(`  · 구성: ${k.packaging_options.join(" / ")}`);
-        if (k.pricing_hints) {
-          const p = typeof k.pricing_hints === "string"
-            ? k.pricing_hints
-            : Array.isArray(k.pricing_hints)
-              ? k.pricing_hints.join(" / ")
-              : JSON.stringify(k.pricing_hints);
-          if (p) lines.push(`  · 가격: ${p}`);
-        }
-        if (k.caveats?.length) lines.push(`  · 주의: ${k.caveats.join(" / ")}`);
-        if (k.common_concerns?.length) lines.push(`  · 자주 묻는 점: ${k.common_concerns.join(" / ")}`);
-        if (k.pair_recommendations?.length) lines.push(`  · 어울리는: ${k.pair_recommendations.join(" / ")}`);
-        if (k.frequent_phrases?.length) lines.push(`  · 회사 자주 쓰는 표현: ${k.frequent_phrases.join(" | ")}`);
       }
       const replies = pk?.[product];
       if (replies && replies.length > 0) {
@@ -340,6 +350,8 @@ JSON 형식으로 답변 옵션 3개와 후속 액션을 작성해주세요.`;
       replies: parsed.replies ?? [],
       follow_up_actions: parsed.follow_up_actions ?? [],
       escalation: parsed.escalation ?? "",
+      // 디버그: KB 가 prompt 에 어떻게 들어갔는지 확인용
+      _kb_prompt: productKnowledgeBlock || null,
     });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
