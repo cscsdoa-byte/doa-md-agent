@@ -144,6 +144,29 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cs_messages_date ON cs_messages(date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_cs_messages_ch ON cs_messages(channel)")
 
+    # 광고/SNS 댓글 — 인스타/유튜브/카카오/페북/틱톡 부정 댓글 감지용
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS ad_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            platform TEXT NOT NULL,          -- instagram/youtube/kakao/facebook/tiktok/sns_own
+            post_url TEXT,                   -- 게시물 URL (영상/광고)
+            post_label TEXT,                 -- 사람이 부르는 이름 (예: "두쫀모 유튜브 광고")
+            comment_text TEXT NOT NULL,
+            author TEXT,
+            posted_at TEXT,                  -- 댓글 작성 시각 (ISO)
+            sentiment TEXT,                  -- positive/negative/neutral
+            severity INTEGER,                -- 0(중립) 1(주의) 2(부정) 3(긴급)
+            keywords TEXT,                   -- 감지된 키워드 (json array)
+            flagged INTEGER DEFAULT 0,       -- 사용자가 직접 플래그 (1=중요)
+            handled INTEGER DEFAULT 0,       -- 처리 완료 여부
+            notes TEXT,                      -- 사용자 메모 (대응 내역)
+            imported_at TEXT NOT NULL
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ad_comments_platform ON ad_comments(platform)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ad_comments_severity ON ad_comments(severity DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ad_comments_posted ON ad_comments(posted_at DESC)")
+
     # 반복 행사 템플릿 — 예: "네이버 오늘끝딜 주간". 사용자가 새 행사 등록할 때 prefill 용.
     conn.execute(
         """CREATE TABLE IF NOT EXISTS event_templates (
@@ -505,6 +528,115 @@ def list_contacts(
     return conn.execute(
         "SELECT * FROM md_contacts ORDER BY channel_key, name"
     ).fetchall()
+
+
+# ───────────────── 댓글 모니터링 ─────────────────
+
+# 부정 댓글 감지 키워드 (1차 빠른 필터)
+COMMENT_NEGATIVE_KEYWORDS = {
+    "danger": ["사기", "환불 안", "신고", "변호사", "고소", "법적", "소비자보호원", "방송 신고", "허위", "거짓말"],
+    "negative": ["맛없", "쓰레기", "최악", "별로", "실망", "곰팡이", "변질", "상했", "썩었", "이상해", "이상하", "비싸", "광고 그만"],
+    "warning": ["환불", "취소", "사기당", "안 와", "왜 이래", "왜 안", "후회"],
+}
+
+
+def _classify_comment_keywords(text: str) -> tuple[str, int, list[str]]:
+    """키워드 기반 1차 분류. Claude 호출 전 빠른 스크리닝.
+
+    Returns: (sentiment, severity 0-3, matched_keywords)
+    """
+    s = text or ""
+    matched: list[str] = []
+    for kw in COMMENT_NEGATIVE_KEYWORDS["danger"]:
+        if kw in s:
+            matched.append(kw)
+            return "negative", 3, matched
+    for kw in COMMENT_NEGATIVE_KEYWORDS["negative"]:
+        if kw in s:
+            matched.append(kw)
+    if matched:
+        return "negative", 2, matched
+    for kw in COMMENT_NEGATIVE_KEYWORDS["warning"]:
+        if kw in s:
+            matched.append(kw)
+    if matched:
+        return "negative", 1, matched
+    return "neutral", 0, []
+
+
+def add_ad_comment(
+    conn: sqlite3.Connection,
+    platform: str,
+    comment_text: str,
+    post_url: str | None = None,
+    post_label: str | None = None,
+    author: str | None = None,
+    posted_at: str | None = None,
+    notes: str | None = None,
+) -> int:
+    """수동/자동 댓글 등록 + 키워드 기반 1차 분류."""
+    import json as _j
+    sentiment, severity, keywords = _classify_comment_keywords(comment_text)
+    cur = conn.execute(
+        """INSERT INTO ad_comments
+           (platform, post_url, post_label, comment_text, author, posted_at,
+            sentiment, severity, keywords, imported_at, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            platform, post_url, post_label, comment_text, author,
+            posted_at or datetime.now().isoformat(),
+            sentiment, severity, _j.dumps(keywords, ensure_ascii=False),
+            datetime.now().isoformat(), notes,
+        ),
+    )
+    return cur.lastrowid or 0
+
+
+def list_ad_comments(
+    conn: sqlite3.Connection,
+    platform: str | None = None,
+    min_severity: int = 0,
+    handled: int | None = None,
+    limit: int = 200,
+) -> list[dict]:
+    sql = "SELECT * FROM ad_comments WHERE severity >= ?"
+    params: list = [min_severity]
+    if platform:
+        sql += " AND platform = ?"
+        params.append(platform)
+    if handled is not None:
+        sql += " AND handled = ?"
+        params.append(handled)
+    sql += " ORDER BY severity DESC, posted_at DESC LIMIT ?"
+    params.append(limit)
+    return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+def ad_comment_stats(conn: sqlite3.Connection, days: int = 14) -> dict:
+    """최근 N일 부정 댓글 통계 (대시보드 카드용)."""
+    from datetime import date, timedelta
+    start = (date.today() - timedelta(days=days - 1)).isoformat()
+    rows = conn.execute(
+        """SELECT severity, platform, handled, COUNT(*) as n
+           FROM ad_comments
+           WHERE imported_at >= ?
+           GROUP BY severity, platform, handled""",
+        (start,),
+    ).fetchall()
+    out = {"total": 0, "danger": 0, "negative": 0, "warning": 0, "unhandled_high": 0, "by_platform": {}}
+    for r in rows:
+        out["total"] += r["n"]
+        if r["severity"] >= 3:
+            out["danger"] += r["n"]
+        elif r["severity"] >= 2:
+            out["negative"] += r["n"]
+        elif r["severity"] >= 1:
+            out["warning"] += r["n"]
+        if r["severity"] >= 2 and r["handled"] == 0:
+            out["unhandled_high"] += r["n"]
+        pf = r["platform"]
+        out["by_platform"][pf] = out["by_platform"].get(pf, 0) + r["n"]
+    return out
 
 
 def import_cs_messages(

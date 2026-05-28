@@ -809,6 +809,11 @@ def cmd_dump_json(out_path: str | None) -> int:
                 product_kb = _json.loads(product_kb_path.read_text(encoding="utf-8"))
             except Exception:
                 product_kb = {}
+
+        # 광고/SNS 댓글 — 부정 댓글 위주, 메인 대시보드 카드용
+        from .store import list_ad_comments, ad_comment_stats
+        ad_comments_recent = list_ad_comments(conn, min_severity=1, limit=50)
+        ad_comments_stats_obj = ad_comment_stats(conn, days=14)
     payload = {
         "generated_at": datetime.now().isoformat(),
         "total": s["total"],
@@ -825,6 +830,8 @@ def cmd_dump_json(out_path: str | None) -> int:
         "cs_critical": cs_critical,
         "cs_repeat": cs_repeat,
         "product_kb": product_kb,
+        "ad_comments": ad_comments_recent,
+        "ad_comment_stats": ad_comment_stats_obj,
     }
     target.write_text(_json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"✓ dump: {target}  ({len(items)}건)")
@@ -1521,6 +1528,25 @@ def main() -> None:
     pcsa = sp.add_parser("cs-analyze", help="인입 메시지 종합 분석 (intent+sentiment+추출+과거답변) JSON")
     pcsa.add_argument("customer_message")
 
+    pac = sp.add_parser("add-comment", help="광고/SNS 댓글 수동 등록 + 키워드 분류 (JSON)")
+    pac.add_argument("platform", choices=["instagram", "youtube", "kakao", "facebook", "tiktok", "sns_own"])
+    pac.add_argument("comment_text")
+    pac.add_argument("--url", default=None)
+    pac.add_argument("--label", default=None)
+    pac.add_argument("--author", default=None)
+    pac.add_argument("--notes", default=None)
+
+    pch = sp.add_parser("comment-handled", help="댓글 처리완료 토글")
+    pch.add_argument("comment_id", type=int)
+    pch.add_argument("--undo", action="store_true")
+
+    pcf = sp.add_parser("comment-flag", help="댓글 플래그 토글")
+    pcf.add_argument("comment_id", type=int)
+    pcf.add_argument("--undo", action="store_true")
+
+    pcd = sp.add_parser("comment-delete", help="댓글 삭제")
+    pcd.add_argument("comment_id", type=int)
+
     pbkb = sp.add_parser("build-product-kb", help="조선팔도떡집 11종 상품 지식 베이스 빌드")
     pbkb.add_argument("--force", action="store_true", help="11종 전체 재빌드")
     pbkb.add_argument("--smart", action="store_true", help="답변수 10%%+ 변화 또는 7일+ 된 상품만 재빌드 (incremental)")
@@ -1592,6 +1618,14 @@ def main() -> None:
         sys.exit(cmd_cs_similar_replies(args.customer_message, args.limit))
     elif args.cmd == "cs-analyze":
         sys.exit(cmd_cs_analyze(args.customer_message))
+    elif args.cmd == "add-comment":
+        sys.exit(cmd_add_comment(args.platform, args.comment_text, args.url, args.label, args.author, args.notes))
+    elif args.cmd == "comment-handled":
+        sys.exit(cmd_comment_handled(args.comment_id, 0 if args.undo else 1))
+    elif args.cmd == "comment-flag":
+        sys.exit(cmd_comment_flag(args.comment_id, 0 if args.undo else 1))
+    elif args.cmd == "comment-delete":
+        sys.exit(cmd_comment_delete(args.comment_id))
     elif args.cmd == "build-product-kb":
         sys.exit(cmd_build_product_kb(args.force, args.smart))
     elif args.cmd == "save-simulation":

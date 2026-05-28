@@ -136,6 +136,54 @@ def detect_cannibal_conflicts() -> list[dict]:
     return pairs
 
 
+def detect_setup_incomplete() -> list[dict]:
+    """진행 중이거나 시작 임박(D-0/D-1)인 selected/running 행사 중 셋업 누락 검출.
+
+    누락 = SKU 미등록(applied_skus_json 비어있음) 또는 매출 매칭 미실행(sales_json 없음).
+    오늘 사고 패턴(fa8f08 NS홈쇼핑 selected · 5/28 시작 · SKU 미등록) 방지용.
+
+    반환: [{short, title, channel, status, sale_start, sale_end, issues:[...]}]
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT dedup_id, channel_key, title, status, sale_start, sale_end,
+                      applied_skus_json, sales_json
+               FROM events
+               WHERE status IN ('selected','running')
+                 AND sale_start IS NOT NULL"""
+        ).fetchall()
+    today = datetime.now().date()
+    out: list[dict] = []
+    for r in rows:
+        try:
+            start = datetime.fromisoformat(r["sale_start"][:10]).date()
+            end = datetime.fromisoformat(r["sale_end"][:10]).date() if r["sale_end"] else start
+        except (ValueError, TypeError):
+            continue
+        # 시작 D-1 이내 ~ 종료까지 (이미 끝난 건 회고 알림에 맡김)
+        if (start - today).days > 1 or today > end:
+            continue
+        sku_empty = not r["applied_skus_json"] or r["applied_skus_json"].strip() in ("", "[]")
+        sales_empty = not r["sales_json"]
+        issues = []
+        if sku_empty:
+            issues.append("SKU 미등록")
+        if not sku_empty and sales_empty:
+            issues.append("매출 매칭 미실행")
+        if not issues:
+            continue
+        out.append({
+            "short": r["dedup_id"][:6],
+            "title": r["title"],
+            "channel": r["channel_key"],
+            "status": r["status"],
+            "sale_start": r["sale_start"][:10],
+            "sale_end": (r["sale_end"] or r["sale_start"])[:10],
+            "issues": issues,
+        })
+    return out
+
+
 def detect_retro_pending() -> list[dict]:
     """closed + sale_end 가 오늘 ~ 14일 전 사이 + ops_retro_note 비어있는 행사.
 
@@ -336,6 +384,17 @@ def build_message() -> tuple[str, list[dict]]:
             end = e["sale_end"][:10] if e["sale_end"] else "?"
             lines.append(f"• *{ch}* {e['title'][:50]} — 종료 {end}")
             notified.append({"id": e["dedup_id"], "kind": "retro_pending"})
+
+    # 셋업 누락 — 진행 중/임박 행사에 SKU 미등록 또는 매출 매칭 미실행
+    setup_issues = detect_setup_incomplete()
+    if setup_issues:
+        lines.append(f"\n🛠 *진행 행사 셋업 누락 — {len(setup_issues)}건* (지금 처리 필요)")
+        for s in setup_issues:
+            ch = CHANNEL_NAMES.get(s["channel"], s["channel"])
+            period = s["sale_start"] if s["sale_start"] == s["sale_end"] else f"{s['sale_start']}~{s['sale_end']}"
+            issues_str = " · ".join(s["issues"])
+            lines.append(f"• [{s['short']}] *{ch}* {s['title'][:40]} ({period}) — {issues_str}")
+            notified.append({"id": f"setup:{s['short']}", "kind": "setup_incomplete"})
 
     # 카니발 충돌 — 같은 SKU·겹치는 기간·다른 채널 페어
     cannibals = detect_cannibal_conflicts()

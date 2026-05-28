@@ -119,6 +119,13 @@ export default async function Home() {
               📦 상품
             </Link>
             <Link
+              href="/comments"
+              className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
+              title="광고·SNS 댓글 모니터링 (인스타/유튜브/카카오/페북/틱톡)"
+            >
+              💬 댓글
+            </Link>
+            <Link
               href="/templates"
               className="px-4 py-2 text-sm bg-white border rounded hover:bg-slate-50 text-slate-700"
             >
