@@ -622,6 +622,12 @@ export default function Calendar({
     [urgent],
   );
 
+  // 신청 후 선정 결과 대기 — MD가 검토할 묶음
+  const awaitingSelection = useMemo(
+    () => events.filter((e) => e.status === "applied"),
+    [events],
+  );
+
   // 카니발리제이션 충돌 검출
   const conflicts = useMemo(() => detectConflicts(events), [events]);
 
@@ -937,6 +943,34 @@ export default function Calendar({
                           매출 {sale.toLocaleString()}원
                         </span>
                       )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        {awaitingSelection.length > 0 && (
+          <div className="mb-4 bg-blue-50 border-l-4 border-blue-500 p-3 rounded">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-bold text-blue-900">📨 선정 대기 ({awaitingSelection.length}건)</div>
+              <Link href="/ops" className="text-[10px] text-blue-700 hover:underline">운영보드에서 보기 →</Link>
+            </div>
+            <div className="text-[10px] text-blue-700 mb-1.5">신청은 넣었는데 아직 결과 대기 — 검토 후 상태 변경하세요</div>
+            <ul className="space-y-1">
+              {awaitingSelection.map((e) => {
+                const th = themeOf(e.channel_key);
+                const period =
+                  e.sale_start && e.sale_end
+                    ? `${e.sale_start.slice(0, 10)}~${e.sale_end.slice(0, 10)}`
+                    : null;
+                return (
+                  <li key={e.dedup_id}>
+                    <button onClick={() => setSelectedId(e.dedup_id)} className="text-xs text-left hover:underline w-full">
+                      <span className="font-mono font-bold mr-1.5">[{th.abbr}]</span>
+                      <span className="text-gray-800">{e.title}</span>
+                      {period && <span className="text-gray-500 ml-1.5">[{period}]</span>}
                     </button>
                   </li>
                 );

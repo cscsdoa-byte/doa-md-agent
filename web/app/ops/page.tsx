@@ -5,9 +5,10 @@ import { loadEvents } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
-// 운영 보드 = 진행중·선정 + 최근(14일 이내) 종료까지 후보로 묶어 보냄.
+// 운영 보드 = 진행중·선정·선정대기(applied) + 최근(14일 이내) 종료까지 후보로 묶어 보냄.
 // 보드 client 컴포넌트가 상태 토글로 필터.
 const ACTIVE_STATUSES = new Set(["running", "selected"]);
+const PENDING_STATUSES = new Set(["applied"]);
 const CLOSED_LOOKBACK_DAYS = 14;
 
 export default async function OpsPage() {
@@ -19,6 +20,7 @@ export default async function OpsPage() {
   const items = payload.events
     .filter((e) => {
       if (ACTIVE_STATUSES.has(e.status)) return true;
+      if (PENDING_STATUSES.has(e.status)) return true;
       if (e.status === "closed" && e.sale_end) {
         const end = new Date(e.sale_end);
         end.setHours(0, 0, 0, 0);
@@ -27,8 +29,8 @@ export default async function OpsPage() {
       return false;
     })
     .sort((a, b) => {
-      // running → selected → closed 순, 그 안에서 종료 임박순
-      const order = { running: 0, selected: 1, closed: 2 } as Record<string, number>;
+      // running → selected → applied(선정대기) → closed 순, 그 안에서 종료 임박순
+      const order = { running: 0, selected: 1, applied: 2, closed: 3 } as Record<string, number>;
       const oa = order[a.status] ?? 99;
       const ob = order[b.status] ?? 99;
       if (oa !== ob) return oa - ob;
@@ -38,7 +40,8 @@ export default async function OpsPage() {
     });
 
   const activeCount = items.filter((e) => ACTIVE_STATUSES.has(e.status)).length;
-  const closedCount = items.length - activeCount;
+  const pendingCount = items.filter((e) => PENDING_STATUSES.has(e.status)).length;
+  const closedCount = items.length - activeCount - pendingCount;
 
   // 카니발 충돌은 전체 events 로 계산
   const conflictMap = detectConflicts(payload.events);
@@ -60,6 +63,7 @@ export default async function OpsPage() {
             <h1 className="text-2xl font-bold text-slate-900">🛠️ 진행중 행사 운영 보드</h1>
             <p className="text-sm text-slate-500 mt-1">
               데이터 갱신: {generatedAt} · 진행·선정 {activeCount}건
+              {pendingCount > 0 && ` · 📨 선정 대기 ${pendingCount}건`}
               {closedCount > 0 && ` · 최근 종료 ${closedCount}건 (회고 트래킹)`}
             </p>
           </div>
@@ -81,7 +85,7 @@ export default async function OpsPage() {
 
         {items.length === 0 ? (
           <div className="bg-white border rounded p-8 text-center text-slate-500">
-            진행중·선정 상태 행사 없음 — 캘린더에서 행사 상태를 "진행중"으로 바꾸면 여기로 들어옵니다.
+            진행중·선정·선정 대기 상태 행사 없음 — 캘린더에서 행사 상태를 "신청완료" 또는 "진행중"으로 바꾸면 여기로 들어옵니다.
           </div>
         ) : (
           <OpsBoard events={items} conflicts={conflictsByEvent} />

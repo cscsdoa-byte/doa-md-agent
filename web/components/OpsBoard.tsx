@@ -44,17 +44,19 @@ function daysUntil(iso: string | null | undefined): number | null {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  running: "🔴 진행중",
+  applied:  "📨 선정 대기",
+  running:  "🔴 진행중",
   selected: "✅ 선정",
-  closed:  "🏁 종료",
+  closed:   "🏁 종료",
 };
 
-type StatusFilter = "active" | "all" | "closed";
+type StatusFilter = "active" | "pending" | "all" | "closed";
 
 const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
-  { value: "active", label: "진행·선정" },
-  { value: "all",    label: "전체" },
-  { value: "closed", label: "🏁 최근 종료" },
+  { value: "active",  label: "진행·선정" },
+  { value: "pending", label: "📨 선정 대기" },
+  { value: "all",     label: "전체" },
+  { value: "closed",  label: "🏁 최근 종료" },
 ];
 
 export default function OpsBoard({ events, conflicts = {} }: Props) {
@@ -79,6 +81,7 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
   const filtered = useMemo(() => {
     return events.filter((e) => {
       if (statusFilter === "active" && !(e.status === "running" || e.status === "selected")) return false;
+      if (statusFilter === "pending" && e.status !== "applied") return false;
       if (statusFilter === "closed" && e.status !== "closed") return false;
       if (mdFilter && ((e.md_owner_name && e.md_owner_name.trim()) || "(미지정)") !== mdFilter) return false;
       return true;
@@ -143,8 +146,29 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
     return { sale, op, ad, stockAlert, claimAlert, cannibalAlert };
   }, [filtered, conflicts]);
 
+  const pendingTotal = useMemo(
+    () => events.filter((e) => e.status === "applied").length,
+    [events],
+  );
+
   return (
     <div className="space-y-4">
+      {/* 선정 대기 배너 — pending 필터 아닐 때만 + 건수 있을 때만 */}
+      {statusFilter !== "pending" && pendingTotal > 0 && (
+        <button
+          onClick={() => setStatusFilter("pending")}
+          className="w-full bg-blue-50 border-2 border-blue-300 hover:bg-blue-100 rounded-lg px-4 py-3 flex items-center justify-between text-left transition"
+        >
+          <div>
+            <div className="text-base font-bold text-blue-900">📨 선정 대기 {pendingTotal}건</div>
+            <div className="text-xs text-blue-700 mt-0.5">
+              MD에 신청은 넣었지만 아직 선정 결과를 못 받은 행사 — 검토 필요
+            </div>
+          </div>
+          <span className="text-blue-700 font-bold whitespace-nowrap ml-3">→ 보기</span>
+        </button>
+      )}
+
       {/* 상단 요약 — 진행중·선정 합산 */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
         <div className="bg-white border rounded p-3">
@@ -187,6 +211,8 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
             const cnt =
               o.value === "active"
                 ? events.filter((e) => e.status === "running" || e.status === "selected").length
+                : o.value === "pending"
+                ? events.filter((e) => e.status === "applied").length
                 : o.value === "closed"
                 ? events.filter((e) => e.status === "closed").length
                 : events.length;
@@ -277,6 +303,8 @@ export default function OpsBoard({ events, conflicts = {} }: Props) {
                   ? "border-orange-500 bg-orange-50/40"
                   : e.status === "running"
                   ? "border-pink-400 bg-pink-50/30"
+                  : e.status === "applied"
+                  ? "border-blue-400 bg-blue-50/40"
                   : e.status === "closed"
                   ? "border-slate-300 bg-slate-50/60"
                   : "border-emerald-300 bg-emerald-50/30"
