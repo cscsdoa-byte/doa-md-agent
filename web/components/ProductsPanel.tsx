@@ -17,7 +17,15 @@ interface ProductKb {
   _built_at?: string;
   /** 사용자 직접 입력 메타 (선택) */
   manual_notes?: string;
+  /** 채널별 상품 URL — 직접 보면서 정보 보강 */
+  channel_urls?: Record<string, string>;
 }
+
+const CHANNEL_OPTIONS = [
+  "자사몰", "스마트스토어", "쿠팡", "11번가", "토스쇼핑",
+  "지마켓", "옥션", "카카오", "NS홈쇼핑", "쇼핑엔티",
+  "CJ온스타일", "롯데홈쇼핑", "K쇼핑", "공영홈쇼핑", "신세계홈쇼핑", "홈쇼핑모아",
+];
 
 interface Props {
   products: string[];
@@ -46,6 +54,9 @@ export default function ProductsPanel({ products, kb }: Props) {
   const [msg, setMsg] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draftNote, setDraftNote] = useState("");
+  const [urlEditing, setUrlEditing] = useState<string | null>(null);
+  const [draftChannel, setDraftChannel] = useState(CHANNEL_OPTIONS[0]);
+  const [draftUrl, setDraftUrl] = useState("");
 
   async function rebuildOne(product: string) {
     if (!confirm(`'${product}' 상품 지식을 다시 빌드할까요?\nClaude API 호출 1회 (~$0.01)`)) return;
@@ -83,6 +94,55 @@ export default function ProductsPanel({ products, kb }: Props) {
         setMsg(`✓ ${product} 메모 저장 — 새로고침하면 반영`);
         setEditing(null);
       }
+    } catch (e) {
+      setMsg(`❌ ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function addUrl(product: string, currentUrls: Record<string, string>) {
+    const url = draftUrl.trim();
+    if (!url) {
+      alert("URL 입력 필요");
+      return;
+    }
+    const newUrls = { ...currentUrls, [draftChannel]: url };
+    setBusy(product);
+    try {
+      const r = await fetch(apiUrl(`/api/products?product=${encodeURIComponent(product)}`), {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ channel_urls: newUrls }),
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) {
+        setMsg(`❌ ${j.error || "실패"}`);
+      } else {
+        setMsg(`✓ ${product} · ${draftChannel} URL 저장됨 (새로고침하면 반영)`);
+        setDraftUrl("");
+      }
+    } catch (e) {
+      setMsg(`❌ ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function removeUrl(product: string, channel: string, currentUrls: Record<string, string>) {
+    if (!confirm(`${product} · ${channel} 링크를 삭제할까요?`)) return;
+    const newUrls = { ...currentUrls };
+    delete newUrls[channel];
+    setBusy(product);
+    try {
+      const r = await fetch(apiUrl(`/api/products?product=${encodeURIComponent(product)}`), {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ channel_urls: newUrls }),
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) setMsg(`❌ ${j.error || "실패"}`);
+      else setMsg(`✓ 삭제됨 (새로고침하면 반영)`);
     } catch (e) {
       setMsg(`❌ ${(e as Error).message}`);
     } finally {
@@ -167,6 +227,75 @@ export default function ProductsPanel({ products, kb }: Props) {
                   })}
                 </div>
               )}
+
+              {/* 채널별 사이트 링크 — 클릭하면 새 탭, 상품 페이지 보면서 정보 보강 */}
+              <div className="pt-2 border-t border-slate-100 mb-2">
+                <div className="text-[10px] font-semibold text-slate-500 mb-1">🔗 채널별 상품 페이지</div>
+                {k?.channel_urls && Object.keys(k.channel_urls).length > 0 ? (
+                  <div className="flex flex-wrap gap-1 mb-1">
+                    {Object.entries(k.channel_urls).map(([ch, url]) => (
+                      <span key={ch} className="text-[10px] inline-flex items-center gap-0.5 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5">
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-700 hover:underline font-semibold"
+                          title={url}
+                        >
+                          {ch} ↗
+                        </a>
+                        <button
+                          onClick={() => removeUrl(p, ch, k.channel_urls!)}
+                          className="text-slate-400 hover:text-rose-600 ml-0.5"
+                          title="삭제"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-slate-400 mb-1">아직 등록된 채널 링크 없음</div>
+                )}
+                {urlEditing === p ? (
+                  <div className="flex gap-1 items-center">
+                    <select
+                      value={draftChannel}
+                      onChange={(e) => setDraftChannel(e.target.value)}
+                      className="text-[10px] border border-slate-300 rounded px-1 py-0.5 bg-white"
+                    >
+                      {CHANNEL_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <input
+                      type="url"
+                      value={draftUrl}
+                      onChange={(e) => setDraftUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="flex-1 text-[10px] border border-slate-300 rounded px-1.5 py-0.5"
+                    />
+                    <button
+                      onClick={() => addUrl(p, k?.channel_urls ?? {})}
+                      disabled={busy === p}
+                      className="text-[10px] px-1.5 py-0.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      추가
+                    </button>
+                    <button
+                      onClick={() => { setUrlEditing(null); setDraftUrl(""); }}
+                      className="text-[10px] px-1.5 py-0.5 bg-slate-100 rounded hover:bg-slate-200"
+                    >
+                      취소
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setUrlEditing(p); setDraftUrl(""); }}
+                    className="text-[10px] text-blue-600 hover:underline"
+                  >
+                    + 채널 링크 추가
+                  </button>
+                )}
+              </div>
 
               {/* 사용자 직접 메모 영역 */}
               <div className="pt-2 border-t border-slate-100">

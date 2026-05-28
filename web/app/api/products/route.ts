@@ -61,20 +61,25 @@ export async function PATCH(request: NextRequest) {
   if (!product) {
     return NextResponse.json({ error: "?product=<이름> 필요" }, { status: 400 });
   }
-  let body: { manual_notes?: string };
+  let body: { manual_notes?: string; channel_urls?: Record<string, string> };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
-  if (body.manual_notes === undefined) {
-    return NextResponse.json({ error: "manual_notes 필요" }, { status: 400 });
+  if (body.manual_notes === undefined && body.channel_urls === undefined) {
+    return NextResponse.json({ error: "manual_notes 또는 channel_urls 필요" }, { status: 400 });
   }
   const kb = loadKb();
   if (!kb[product]) {
     kb[product] = { _reply_count: 0, _built_at: new Date().toISOString() };
   }
-  kb[product].manual_notes = body.manual_notes;
+  if (body.manual_notes !== undefined) {
+    kb[product].manual_notes = body.manual_notes;
+  }
+  if (body.channel_urls !== undefined) {
+    kb[product].channel_urls = body.channel_urls;
+  }
   saveKb(kb);
   await refreshDump();
   return NextResponse.json({ ok: true });
