@@ -8,5 +8,6 @@ cd /d %~dp0
 "%USERPROFILE%\.local\bin\uv.exe" run python -m crawler.run sales-all >> data\poll.log 2>&1
 "%USERPROFILE%\.local\bin\uv.exe" run python -m crawler.run infer-event-type >> data\poll.log 2>&1
 "%USERPROFILE%\.local\bin\uv.exe" run python -m crawler.run infer-md-owner >> data\poll.log 2>&1
+"%USERPROFILE%\.local\bin\uv.exe" run python -m crawler.run yt-poll >> data\poll.log 2>&1
 "%USERPROFILE%\.local\bin\uv.exe" run python -m crawler.run dump-json >> data\poll.log 2>&1
 "%USERPROFILE%\.local\bin\uv.exe" run python -m crawler.notify >> data\poll.log 2>&1

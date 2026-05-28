@@ -45,6 +45,13 @@ for _stream in (sys.stdout, sys.stderr):
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
+# 토큰 만료 임박/만료 시 자동 로그인 (notify 시작 직전 1회). 실패해도 알림 자체는 진행.
+try:
+    from api.settle_client import ensure_valid_token
+    ensure_valid_token()
+except Exception as _e:  # noqa: BLE001
+    print(f"[notify] 토큰 자동 갱신 건너뜀: {_e}", file=sys.stderr)
+
 CHANNEL_NAMES = {
     "naver_smartstore": "네이버",
     "kakao_talkstore": "카카오 톡스토어",

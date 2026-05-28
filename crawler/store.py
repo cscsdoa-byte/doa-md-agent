@@ -167,6 +167,31 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ad_comments_severity ON ad_comments(severity DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ad_comments_posted ON ad_comments(posted_at DESC)")
 
+    # 댓글 자동 수집 중복 방지 — 플랫폼 댓글 ID 유니크
+    # external_id: YouTube comment id 등 플랫폼 측 unique key
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(ad_comments)")}
+    if "external_id" not in cols:
+        conn.execute("ALTER TABLE ad_comments ADD COLUMN external_id TEXT")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uniq_ad_comments_external ON ad_comments(platform, external_id) WHERE external_id IS NOT NULL"
+        )
+
+    # YouTube 영상 등록 — 댓글 자동 수집 대상
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS yt_videos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id TEXT NOT NULL UNIQUE,    -- YouTube video id (11자)
+            title TEXT,
+            label TEXT,                        -- 사용자 부르는 이름 (예: "두쫀모 광고 v1")
+            related_product TEXT,              -- 관련 상품 (canonical name)
+            added_at TEXT NOT NULL,
+            last_polled_at TEXT,
+            last_poll_count INTEGER DEFAULT 0,
+            active INTEGER DEFAULT 1
+        )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_yt_videos_active ON yt_videos(active)")
+
     # 반복 행사 템플릿 — 예: "네이버 오늘끝딜 주간". 사용자가 새 행사 등록할 때 prefill 용.
     conn.execute(
         """CREATE TABLE IF NOT EXISTS event_templates (
@@ -573,23 +598,76 @@ def add_ad_comment(
     author: str | None = None,
     posted_at: str | None = None,
     notes: str | None = None,
+    external_id: str | None = None,
 ) -> int:
-    """수동/자동 댓글 등록 + 키워드 기반 1차 분류."""
+    """수동/자동 댓글 등록 + 키워드 기반 1차 분류.
+
+    external_id 있으면 (platform, external_id) 중복 시 0 반환 (이미 등록).
+    """
     import json as _j
+    # 중복 체크
+    if external_id:
+        existing = conn.execute(
+            "SELECT id FROM ad_comments WHERE platform = ? AND external_id = ?",
+            (platform, external_id),
+        ).fetchone()
+        if existing:
+            return 0
     sentiment, severity, keywords = _classify_comment_keywords(comment_text)
     cur = conn.execute(
         """INSERT INTO ad_comments
            (platform, post_url, post_label, comment_text, author, posted_at,
-            sentiment, severity, keywords, imported_at, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            sentiment, severity, keywords, imported_at, notes, external_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             platform, post_url, post_label, comment_text, author,
             posted_at or datetime.now().isoformat(),
             sentiment, severity, _j.dumps(keywords, ensure_ascii=False),
-            datetime.now().isoformat(), notes,
+            datetime.now().isoformat(), notes, external_id,
         ),
     )
     return cur.lastrowid or 0
+
+
+def yt_add_video(
+    conn: sqlite3.Connection,
+    video_id: str,
+    title: str | None = None,
+    label: str | None = None,
+    related_product: str | None = None,
+) -> int:
+    """YouTube 영상 등록 (댓글 폴링 대상). 중복 시 update."""
+    now = datetime.now().isoformat()
+    existing = conn.execute("SELECT id FROM yt_videos WHERE video_id = ?", (video_id,)).fetchone()
+    if existing:
+        conn.execute(
+            """UPDATE yt_videos SET title = COALESCE(?, title),
+               label = COALESCE(?, label), related_product = COALESCE(?, related_product),
+               active = 1 WHERE video_id = ?""",
+            (title, label, related_product, video_id),
+        )
+        return existing["id"]
+    cur = conn.execute(
+        """INSERT INTO yt_videos (video_id, title, label, related_product, added_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (video_id, title, label, related_product, now),
+    )
+    return cur.lastrowid or 0
+
+
+def yt_list_videos(conn: sqlite3.Connection, active_only: bool = True) -> list[dict]:
+    sql = "SELECT * FROM yt_videos"
+    if active_only:
+        sql += " WHERE active = 1"
+    sql += " ORDER BY added_at DESC"
+    return [dict(r) for r in conn.execute(sql).fetchall()]
+
+
+def yt_mark_polled(conn: sqlite3.Connection, video_id: str, count: int) -> None:
+    conn.execute(
+        "UPDATE yt_videos SET last_polled_at = ?, last_poll_count = ? WHERE video_id = ?",
+        (datetime.now().isoformat(), count, video_id),
+    )
 
 
 def list_ad_comments(

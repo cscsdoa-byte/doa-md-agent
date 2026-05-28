@@ -1537,6 +1537,14 @@ def main() -> None:
     pcsa = sp.add_parser("cs-analyze", help="인입 메시지 종합 분석 (intent+sentiment+추출+과거답변) JSON")
     pcsa.add_argument("customer_message")
 
+    pyt_add = sp.add_parser("yt-add", help="YouTube 영상 등록 (댓글 폴링 대상)")
+    pyt_add.add_argument("video_id", help="YouTube 11자 video ID (예: dQw4w9WgXcQ)")
+    pyt_add.add_argument("--label", default=None)
+    pyt_add.add_argument("--product", default=None, help="관련 상품 정식명")
+
+    sp.add_parser("yt-poll", help="등록된 YouTube 영상 댓글 폴링 → ad_comments insert")
+    sp.add_parser("yt-list", help="등록된 YouTube 영상 목록")
+
     pac = sp.add_parser("add-comment", help="광고/SNS 댓글 수동 등록 + 키워드 분류 (JSON)")
     pac.add_argument("platform", choices=["instagram", "youtube", "kakao", "facebook", "tiktok", "sns_own"])
     pac.add_argument("comment_text")
@@ -1627,6 +1635,12 @@ def main() -> None:
         sys.exit(cmd_cs_similar_replies(args.customer_message, args.limit))
     elif args.cmd == "cs-analyze":
         sys.exit(cmd_cs_analyze(args.customer_message))
+    elif args.cmd == "yt-add":
+        sys.exit(cmd_yt_add(args.video_id, args.label, args.product))
+    elif args.cmd == "yt-poll":
+        sys.exit(cmd_yt_poll())
+    elif args.cmd == "yt-list":
+        sys.exit(cmd_yt_list())
     elif args.cmd == "add-comment":
         sys.exit(cmd_add_comment(args.platform, args.comment_text, args.url, args.label, args.author, args.notes))
     elif args.cmd == "comment-handled":
