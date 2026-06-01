@@ -125,7 +125,9 @@ def cmd_crawl(only: list[str] | None, doa_only_log: bool) -> int:
                 f"new={new:3d} seen={seen:3d} doa_fit={doa_count:3d}"
             )
     print(f"\nTOTAL new={total_new} seen={total_seen} failures={len(failures)}")
-    return 1 if failures else 0
+    # 부분 실패(세션 만료·URL 미확정·어댑터 미구현)는 매번 의도된 상태 → systemd 후속 step 끊기지 않게 0 반환.
+    # 모든 채널이 실패한 경우에만 1.
+    return 0 if (total_seen > 0 or total_new > 0) else 1
 
 
 def cmd_list(limit: int, doa_only: bool, channel: str | None, upcoming: int | None) -> int:
