@@ -4,12 +4,18 @@
 [Unit]
 Description=Doa MD Agent — poll once (auto_login + crawl + dump + notify)
 After=network-online.target
+# 2026-08-14: 실패 시 텔레그램 알림 (jeongsan-failure-notify@ 템플릿 재사용).
+# 이번 SKU 사고(poll.timer 11일간 disable → 토큰 만료)의 재발 신호를 잡기 위해 추가.
+OnFailure=jeongsan-failure-notify@doa-md-poll.service.service
 
 [Service]
 Type=oneshot
 User=ubuntu
 WorkingDirectory=/home/ubuntu/doa-md-agent
 EnvironmentFile=/home/ubuntu/doa-md-agent/.env
+# TimeoutStartSec 는 memo(reference_doa_md_agent_runbook.md) 에 따라 서버 유닛에만 적용.
+# 여기 파일에도 추가해 배포 재현 시 자동 반영.
+TimeoutStartSec=900
 ExecStart=/home/ubuntu/.local/bin/uv run python -m crawler.auto_login
 ExecStart=/home/ubuntu/.local/bin/uv run python -m crawler.run crawl
 ExecStart=/home/ubuntu/.local/bin/uv run python -m crawler.run sales-all

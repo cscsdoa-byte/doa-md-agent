@@ -155,9 +155,15 @@ export default function Calendar({
   async function searchSkusRight() {
     if (!skuQuery.trim()) { setSkuHits([]); return; }
     setSkuSearching(true);
+    setError(null);
     try {
       const r = await fetch(apiUrl(`/api/skus?q=${encodeURIComponent(skuQuery)}&limit=15`));
       const j = await r.json();
+      if (!r.ok) {
+        setError(j.error || `SKU 검색 실패 (HTTP ${r.status})`);
+        setSkuHits([]);
+        return;
+      }
       setSkuHits(j.items || []);
     } catch (e) {
       setError((e as Error).message);
@@ -231,9 +237,15 @@ export default function Calendar({
       return;
     }
     setNewSkuSearching(true);
+    setError(null);
     try {
       const r = await fetch(apiUrl(`/api/skus?q=${encodeURIComponent(newSkuQuery)}&limit=15`));
       const j = await r.json();
+      if (!r.ok) {
+        setError(j.error || `SKU 검색 실패 (HTTP ${r.status})`);
+        setNewSkuHits([]);
+        return;
+      }
       setNewSkuHits(j.items || []);
     } catch (e) {
       setError((e as Error).message);
@@ -537,9 +549,9 @@ export default function Calendar({
       }
       const newId = j.dedup_id.slice(0, 6);
 
-      // 2. SKU 자동 등록 (선택 사항)
+      // 2. SKU 자동 등록 (선택 사항) — 실패 시 유저에게 알리고 후속 단계 중단
       if (newPickedSku && newSkuPrice) {
-        await fetch(apiUrl(`/api/event/${newId}/register`), {
+        const skuR = await fetch(apiUrl(`/api/event/${newId}/register`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -547,16 +559,28 @@ export default function Calendar({
             sale_price: parseInt(newSkuPrice, 10),
           }),
         });
+        if (!skuR.ok) {
+          const skuJ = await skuR.json().catch(() => ({}));
+          setError(`행사는 생성됐지만 SKU 등록 실패: ${skuJ.error || `HTTP ${skuR.status}`} (행사 id ${newId} 우측 패널에서 재등록)`);
+          startTransition(() => router.refresh());
+          return;
+        }
       }
 
       // 3. 광고비 (선택 사항)
       const ad = parseInt(newAdSpend || "0", 10);
       if (ad > 0) {
-        await fetch(apiUrl(`/api/event/${newId}`), {
+        const adR = await fetch(apiUrl(`/api/event/${newId}`), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ad_spend: ad }),
         });
+        if (!adR.ok) {
+          const adJ = await adR.json().catch(() => ({}));
+          setError(`행사·SKU는 저장됐지만 광고비 반영 실패: ${adJ.error || `HTTP ${adR.status}`} (우측 패널에서 재입력)`);
+          startTransition(() => router.refresh());
+          return;
+        }
       }
 
       // 폼 초기화 + 닫기

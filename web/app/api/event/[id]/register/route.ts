@@ -16,8 +16,8 @@ export async function POST(
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
   }
   const body = (await request.json()) as RegisterBody;
-  if (!body.sku_id || !body.sale_price) {
-    return NextResponse.json({ error: "sku_id와 sale_price 필수" }, { status: 400 });
+  if (!body.sku_id || typeof body.sale_price !== "number" || body.sale_price < 0) {
+    return NextResponse.json({ error: "sku_id 필수, sale_price 는 0 이상 숫자" }, { status: 400 });
   }
   try {
     await runCli([

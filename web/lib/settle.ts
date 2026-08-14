@@ -171,9 +171,13 @@ export async function fetchSummary(params: {
       headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
       cache: "no-store",
     });
+    if (r.status === 401) {
+      throw new SettleError(401, "토큰 만료/무효 — .env 의 SETTLE_API_TOKEN 갱신 필요");
+    }
     if (!r.ok) return null;
     return (await r.json()) as DashboardSummary;
-  } catch {
+  } catch (e) {
+    if (e instanceof SettleError) throw e;
     return null;
   }
 }

@@ -66,8 +66,10 @@ channels:
     adapter: playwright
     auth: session
     urls:
-      login: https://partner.tossshopping.com/login
-      list:  https://partner.tossshopping.com/notice
+      # 2026-08-14: partner.tossshopping.com 이 DNS 해석 불가 (매시간 crawl err).
+      # 실제 도메인 확인 전까지 null 로 두어 crawl 스킵되게 함.
+      login: null
+      list:  null
     settle_channels: ["토스쇼핑"]
     # 토스 수수료 구조 (jeongsan-patches/README.md 확정):
     #   - 결제 수수료 2.4% — 모든 주문 무조건
