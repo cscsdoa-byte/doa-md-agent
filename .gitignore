@@ -39,3 +39,7 @@ Thumbs.db
 
 # Claude Code 작업 인계 파일
 .claude-handoff.md
+
+# 임시 스냅샷 (bug audit 2026-08-14)
+_server_snapshot/
+_local_diverged_backup/

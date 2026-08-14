@@ -5,17 +5,15 @@ import { loadEvents } from "@/lib/data";
 export const dynamic = "force-dynamic";
 
 interface ProductKb {
-  summary?: string | null;
-  features?: unknown;
-  storage_shelf_life?: unknown;
-  packaging_options?: unknown;
-  pricing_hints?: unknown;
-  common_concerns?: unknown;
-  pair_recommendations?: unknown;
-  caveats?: unknown;
-  frequent_phrases?: unknown;
-  _reply_count?: number;
-  _built_at?: string;
+  manual_notes?: string;
+  channel_urls?: Record<string, string>;
+  main_image?: string | null;
+  detail_images?: string[];
+  price?: number | null;
+  rating?: number | null;
+  review_count?: number | null;
+  _price_fetched_at?: string;
+  _price_source?: string;
 }
 
 const PRODUCTS = [

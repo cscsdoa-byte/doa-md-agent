@@ -269,6 +269,48 @@ def cmd_unregister(id_prefix: str, sku_id: int) -> int:
     return 0
 
 
+def _verify_settle_channel_mapping() -> None:
+    """yaml settle_channels 와 정산자동화웹 facets 채널 목록을 비교 검증.
+    매핑 오류 발견 시 stderr 로 경고 출력 (sync 자체는 진행).
+    - yaml 에는 있는데 facets 에 없는 채널명 → 오타/폐기 의심
+    - facets 에는 있는데 yaml 어디에도 매핑 안 된 채널 → 신규 채널 추가 필요 (단,
+      자사몰/문자주문/전화주문/오늘의집 처럼 모니터링 제외 채널은 NON_MONITORED 로 화이트리스트)
+    """
+    NON_MONITORED = {"자사몰", "문자주문", "전화주문", "오늘의집"}
+    # facets 는 special_flag IS NULL 만 뽑아서, unmatched/취소 row 만 있는 채널은 빠짐.
+    # yaml 에는 의도적으로 두지만 facets 에서는 안 보이는 채널 = false positive 예외처리.
+    FACETS_EXEMPT = {"카톡주문"}
+    try:
+        from api.settle_client import SettleClient
+        with SettleClient() as c:
+            facets = c.facets()
+        facets_channels = set(facets.get("channels") or [])
+    except Exception as e:  # noqa: BLE001
+        print(f"  ⚠ 매핑 검증 실패 (facets 호출 에러): {e}", file=sys.stderr)
+        return
+
+    channels = load_channels()
+    yaml_mapped: set[str] = set()
+    for ch in channels:
+        for name in (ch.get("settle_channels") or []):
+            yaml_mapped.add(name)
+
+    yaml_only = yaml_mapped - facets_channels - FACETS_EXEMPT
+    facets_only = facets_channels - yaml_mapped - NON_MONITORED
+    if yaml_only:
+        print(
+            f"  ⚠ yaml settle_channels 에 있지만 정산웹에 없음: {sorted(yaml_only)} "
+            f"— 오타/폐기 채널 의심",
+            file=sys.stderr,
+        )
+    if facets_only:
+        print(
+            f"  ⚠ 정산웹에 있지만 yaml 어디에도 매핑 안 됨: {sorted(facets_only)} "
+            f"— 채널 추가 검토 필요",
+            file=sys.stderr,
+        )
+
+
 def cmd_sales_all() -> int:
     """모든 active 행사(applied/selected/running) 의 매출 자동 새로고침.
 
@@ -276,6 +318,7 @@ def cmd_sales_all() -> int:
     """
     from api.sales import fetch_event_sales
 
+    _verify_settle_channel_mapping()
     with connect() as conn:
         rows = conn.execute(
             """SELECT dedup_id, title, channel_key, sale_start, sale_end, applied_skus_json
@@ -295,7 +338,14 @@ def cmd_sales_all() -> int:
             sku_names = [s.get("sku_name") for s in skus if s.get("sku_name")]
             if not sku_names:
                 continue
-            settle_names = _channel_settle_names(r["channel_key"]) or None
+            settle_names = _channel_settle_names(r["channel_key"])
+            if not settle_names:
+                # 매핑 없는 채널 (settle_channels=[]) 은 자동 sync 에서 스킵.
+                # None 폴백 시 fetch_event_sales 가 전 채널 호출 → 다른 채널 매출 섞임.
+                print(
+                    f"  ⊘ {r['dedup_id'][:6]}  채널 '{r['channel_key']}' 매핑 없음, 스킵  {r['title'][:50]}"
+                )
+                continue
             result = fetch_event_sales(
                 sku_names, r["sale_start"], r["sale_end"], channels=settle_names
             )

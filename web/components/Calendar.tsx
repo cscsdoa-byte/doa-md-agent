@@ -874,18 +874,41 @@ export default function Calendar({
           </div>
         )}
 
+        {/* 상단 요약 — chip 한 줄 + 클릭으로 펼치기. 캘린더를 가리지 않도록 압축 */}
+        {(today0.length + (urgent.length - today0.length) + liveEvents.length + awaitingSelection.length + upcomingSeasons.length) > 0 && (
+          <details className="mb-3 bg-slate-50 border border-slate-200 rounded-lg" open={today0.length > 0}>
+            <summary className="cursor-pointer px-3 py-2 flex items-center gap-2 flex-wrap select-none hover:bg-slate-100">
+              {today0.length > 0 && (
+                <span className="px-2 py-0.5 rounded bg-red-600 text-white text-xs font-bold">🚨 오늘마감 {today0.length}</span>
+              )}
+              {urgent.length - today0.length > 0 && (
+                <span className="px-2 py-0.5 rounded bg-orange-100 text-orange-900 text-xs font-semibold">⚠ 내일마감 {urgent.length - today0.length}</span>
+              )}
+              {liveEvents.length > 0 && (
+                <span className="px-2 py-0.5 rounded bg-pink-100 text-pink-900 text-xs font-semibold">🔴 라이브 {liveEvents.length}</span>
+              )}
+              {awaitingSelection.length > 0 && (
+                <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-900 text-xs font-semibold">📨 선정대기 {awaitingSelection.length}</span>
+              )}
+              {upcomingSeasons.length > 0 && (
+                <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-900 text-xs font-semibold">🎉 다음시즌 {upcomingSeasons.length}</span>
+              )}
+              <span className="text-[11px] text-slate-500 ml-auto">▼ 세부 펼치기</span>
+            </summary>
+            <div className="px-3 pb-3 pt-1 space-y-2">
+
         {today0.length > 0 && (
-          <div className="mb-4 bg-red-600 text-white p-4 rounded shadow-lg">
-            <div className="text-base font-bold flex items-center gap-2">
+          <div className="bg-red-600 text-white p-3 rounded shadow">
+            <div className="text-sm font-bold flex items-center gap-2">
               🚨 오늘 자정 마감 {today0.length}건
-              <span className="text-xs font-normal opacity-90">지금 신청 안 하면 일주일 날아갑니다</span>
+              <span className="text-[10px] font-normal opacity-90">지금 신청 안 하면 일주일 날아갑니다</span>
             </div>
-            <ul className="mt-2 space-y-1">
+            <ul className="mt-1.5 space-y-0.5">
               {today0.map((e) => {
                 const th = themeOf(e.channel_key);
                 return (
                   <li key={e.dedup_id}>
-                    <button onClick={() => setSelectedId(e.dedup_id)} className="text-sm text-left hover:underline w-full">
+                    <button onClick={() => setSelectedId(e.dedup_id)} className="text-xs text-left hover:underline w-full">
                       <span className="font-mono font-bold mr-2">[{th.abbr}]</span>
                       {e.title}
                     </button>
@@ -897,9 +920,9 @@ export default function Calendar({
         )}
 
         {urgent.length > today0.length && (
-          <div className="mb-4 bg-orange-50 border-l-4 border-orange-500 p-3 rounded">
-            <div className="text-sm font-bold text-orange-900">⚠ 내일 마감 ({urgent.length - today0.length}건)</div>
-            <ul className="mt-1.5 space-y-1">
+          <div className="bg-orange-50 border-l-4 border-orange-500 p-2.5 rounded">
+            <div className="text-xs font-bold text-orange-900">⚠ 내일 마감 ({urgent.length - today0.length}건)</div>
+            <ul className="mt-1 space-y-0.5">
               {urgent.filter((e) => daysUntil(e.deadline_at) === 1).map((e) => {
                 const th = themeOf(e.channel_key);
                 return (
@@ -917,14 +940,12 @@ export default function Calendar({
         )}
 
         {liveEvents.length > 0 && (
-          <div className="mb-4 bg-pink-50 border-l-4 border-pink-500 p-3 rounded">
+          <div className="bg-pink-50 border-l-4 border-pink-500 p-2.5 rounded">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-bold text-pink-900">🔴 라이브 중 ({liveEvents.length}건)</div>
-              <div className="text-[10px] text-pink-700" title="매 60초 자동 새로고침 — md-poll.bat 이 백엔드에서 sales-all 돌릴 때 반영됨">
-                🔄 1분 자동 갱신
-              </div>
+              <div className="text-xs font-bold text-pink-900">🔴 라이브 중 ({liveEvents.length}건)</div>
+              <div className="text-[10px] text-pink-700" title="매 60초 자동 새로고침">🔄 1분 자동 갱신</div>
             </div>
-            <ul className="mt-1.5 space-y-1">
+            <ul className="mt-1 space-y-0.5">
               {liveEvents.map((e) => {
                 const th = themeOf(e.channel_key);
                 const period =
@@ -952,13 +973,12 @@ export default function Calendar({
         )}
 
         {awaitingSelection.length > 0 && (
-          <div className="mb-4 bg-blue-50 border-l-4 border-blue-500 p-3 rounded">
+          <div className="bg-blue-50 border-l-4 border-blue-500 p-2.5 rounded">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-bold text-blue-900">📨 선정 대기 ({awaitingSelection.length}건)</div>
-              <Link href="/ops" className="text-[10px] text-blue-700 hover:underline">운영보드에서 보기 →</Link>
+              <div className="text-xs font-bold text-blue-900">📨 선정 대기 ({awaitingSelection.length}건)</div>
+              <Link href="/ops" className="text-[10px] text-blue-700 hover:underline">운영보드 →</Link>
             </div>
-            <div className="text-[10px] text-blue-700 mb-1.5">신청은 넣었는데 아직 결과 대기 — 검토 후 상태 변경하세요</div>
-            <ul className="space-y-1">
+            <ul className="mt-1 space-y-0.5">
               {awaitingSelection.map((e) => {
                 const th = themeOf(e.channel_key);
                 const period =
@@ -980,16 +1000,16 @@ export default function Calendar({
         )}
 
         {upcomingSeasons.length > 0 && (
-          <div className="mb-4 bg-purple-50 border-l-4 border-purple-400 p-3 rounded">
-            <div className="text-xs font-bold text-purple-900 mb-1.5">🎉 다음 시즌 (떡집 매출 핵심)</div>
-            <div className="flex flex-wrap gap-2">
+          <div className="bg-purple-50 border-l-4 border-purple-400 p-2.5 rounded">
+            <div className="text-xs font-bold text-purple-900 mb-1">🎉 다음 시즌 (떡집 매출 핵심)</div>
+            <div className="flex flex-wrap gap-1.5">
               {upcomingSeasons.map((s) => {
                 const d = daysFromToday(s.date);
                 const isTop = s.importance >= 9;
                 return (
                   <span
                     key={s.date}
-                    className={`text-xs px-2 py-1 rounded ${isTop ? "bg-purple-200 text-purple-900 font-bold" : "bg-white text-purple-700"}`}
+                    className={`text-[11px] px-2 py-0.5 rounded ${isTop ? "bg-purple-200 text-purple-900 font-bold" : "bg-white text-purple-700"}`}
                     title={s.date}
                   >
                     {s.name} <b>D-{d}</b>
@@ -1000,7 +1020,13 @@ export default function Calendar({
           </div>
         )}
 
-        <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded overflow-hidden">
+            </div>
+          </details>
+        )}
+
+        {/* 캘린더 그리드 — 모바일은 가로 스크롤 (셀 너비 보장) */}
+        <div className="overflow-x-auto -mx-3 px-3 md:mx-0 md:px-0 md:overflow-visible">
+        <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded overflow-hidden min-w-[640px] md:min-w-0">
           {WEEKDAYS.map((w, i) => (
             <div key={w} className={`bg-gray-50 px-2 py-1.5 text-xs font-semibold ${i === 0 ? "text-red-600" : i === 6 ? "text-blue-600" : "text-gray-700"}`}>
               {w}
@@ -1089,6 +1115,7 @@ export default function Calendar({
               </div>
             );
           })}
+        </div>
         </div>
       </div>
 

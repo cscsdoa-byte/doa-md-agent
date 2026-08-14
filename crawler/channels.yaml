@@ -35,7 +35,7 @@ channels:
     auth: none
     urls:
       list: https://kakaotalkstore.tistory.com/rss
-    settle_channels: []   # 신규 입점 — 정산 데이터 아직 없음
+    settle_channels: ["카카오쇼핑", "카톡주문"]   # 정산자동화웹에 두 표기 동시 운영 (2026-06 확인)
     default_fee_rate: 0.033   # 사용자 시뮬레이터 기준 (3.3%)
     poll_interval_minutes: 20
 
@@ -98,7 +98,7 @@ channels:
     urls:
       login: null                  # TODO: NS홈쇼핑 셀러 페이지 URL 확정
       list:  null
-    settle_channels: []            # 정산자동화웹에 아직 없음 (회의록상 신규/예정 채널)
+    settle_channels: ["NS홈쇼핑"]   # 정산자동화웹 facets 에 등록됨 (2026-06 확인)
     default_fee_rate: 0.15         # 사용자 시뮬레이터 기준 (15%)
     poll_interval_minutes: 120
     # 메인 구좌: "특가왕" — 진입 시 가격조정 불가 가능성 있음 (회의록 2026-05-20)
@@ -115,6 +115,20 @@ channels:
     default_fee_rate: 0.15         # 홈쇼핑 계열 보수적 — 추후 정산 데이터로 교체
     poll_interval_minutes: 120
 
+  - key: temu
+    name: 테무 (Temu Seller Center)
+    adapter: playwright            # TODO: 셀러센터 URL 확정
+    auth: session
+    urls:
+      login: null                  # TODO: https://seller.temu.com 추정
+      list:  null
+    settle_channels: ["테무"]
+    default_fee_rate: 0.092        # 정산 실측치 (2026-06 fee/sale = 804,047/8,739,645)
+    poll_interval_minutes: 120
+
+  # ⚠ 아래 6개 홈쇼핑/T커머스 채널은 아직 정산자동화웹에 입점/매출 데이터 없음.
+  # settle_channels 는 빈 배열로 두고, 정산웹에 채널 추가될 때 ["채널명"] 으로 갱신.
+  # (잘못된 채널명을 미리 박아두면 입점 전 행사에서 매출 매칭 false negative 위험)
   - key: k_shopping
     name: K쇼핑 (KT T커머스)
     adapter: playwright            # TODO: 셀러센터 URL 확정
@@ -122,7 +136,7 @@ channels:
     urls:
       login: null                  # TODO
       list:  null
-    settle_channels: ["K쇼핑"]     # 정산자동화웹에 채널 생기는 대로 자동 매핑
+    settle_channels: []            # TODO: 정산웹 입점 시 ["K쇼핑"] 등 실제 표기로 갱신
     default_fee_rate: 0.15
     poll_interval_minutes: 120
 
@@ -133,7 +147,7 @@ channels:
     urls:
       login: null                  # TODO — 후보: https://partner.lotteimall.com
       list:  null
-    settle_channels: ["롯데홈쇼핑"]
+    settle_channels: []            # TODO: 정산웹 입점 시 갱신
     default_fee_rate: 0.15
     poll_interval_minutes: 120
 
@@ -144,7 +158,7 @@ channels:
     urls:
       login: null                  # TODO — 홈쇼핑 모음앱(버즈니)
       list:  null
-    settle_channels: ["홈쇼핑모아"]
+    settle_channels: []            # TODO: 정산웹 입점 시 갱신
     default_fee_rate: 0.15
     poll_interval_minutes: 120
 
@@ -155,7 +169,7 @@ channels:
     urls:
       login: null                  # TODO — 후보: https://partners.gongyoungshop.kr
       list:  null
-    settle_channels: ["공영홈쇼핑"]
+    settle_channels: []            # TODO: 정산웹 입점 시 갱신
     default_fee_rate: 0.15
     poll_interval_minutes: 120
 
@@ -166,7 +180,7 @@ channels:
     urls:
       login: null                  # TODO — 후보: https://partner.cjonstyle.com
       list:  null
-    settle_channels: ["CJ온스타일"]
+    settle_channels: []            # TODO: 정산웹 입점 시 갱신
     default_fee_rate: 0.15
     poll_interval_minutes: 120
 
@@ -177,7 +191,7 @@ channels:
     urls:
       login: null                  # TODO
       list:  null
-    settle_channels: ["신세계홈쇼핑"]
+    settle_channels: []            # TODO: 정산웹 입점 시 갱신
     default_fee_rate: 0.15
     poll_interval_minutes: 120
 

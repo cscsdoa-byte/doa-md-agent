@@ -476,30 +476,23 @@ def main() -> None:
         print(f"[notify] 오늘 이미 알린 행사만 있음 — 슬랙 전송 생략 ({len(notified)}건)")
         return
 
-    # 발송 방식: 1순위 Bot API (SLACK_BOT_TOKEN + SLACK_CHANNEL_ID), 2순위 Incoming Webhook
-    bot_token = os.getenv("SLACK_BOT_TOKEN", "").strip()
-    channel_id = os.getenv("SLACK_CHANNEL_ID", "").strip()
-    webhook = os.getenv("SLACK_WEBHOOK_URL", "").strip()
+    # 발송: 텔레그램 (도아 알림 통합. 2026-06-09 슬랙에서 전환)
+    tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    tg_chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
-    if bot_token and channel_id:
+    if tg_token and tg_chat:
         r = httpx.post(
-            "https://slack.com/api/chat.postMessage",
-            headers={"Authorization": f"Bearer {bot_token}", "Content-Type": "application/json; charset=utf-8"},
-            json={"channel": channel_id, "text": message, "mrkdwn": True},
+            f"https://api.telegram.org/bot{tg_token}/sendMessage",
+            data={"chat_id": tg_chat, "text": message, "disable_web_page_preview": "true"},
             timeout=15,
         )
         body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
         if not body.get("ok"):
-            print(f"ERROR: 슬랙 전송 실패 ({r.status_code}) — {body.get('error') or r.text[:200]}", file=sys.stderr)
-            sys.exit(1)
-    elif webhook:
-        r = httpx.post(webhook, json={"text": message}, timeout=15)
-        if r.status_code >= 400:
-            print(f"ERROR: 슬랙 webhook 전송 실패 {r.status_code}: {r.text[:200]}", file=sys.stderr)
+            print(f"ERROR: 텔레그램 전송 실패 ({r.status_code}) — {body.get('description') or r.text[:200]}", file=sys.stderr)
             sys.exit(1)
     else:
-        print("ERROR: SLACK_BOT_TOKEN+SLACK_CHANNEL_ID 또는 SLACK_WEBHOOK_URL 둘 다 .env 에 없음", file=sys.stderr)
-        print("\n--- 슬랙으로 보낼 내용 (dry) ---\n")
+        print("ERROR: TELEGRAM_BOT_TOKEN+TELEGRAM_CHAT_ID 둘 다 .env 에 없음", file=sys.stderr)
+        print("--- 텔레그램 dry mode ---")
         print(message)
         sys.exit(2)
 
@@ -511,7 +504,7 @@ def main() -> None:
     state = {k: v for k, v in state.items() if k >= cutoff or (datetime.strptime(cutoff, "%Y-%m-%d") - datetime.strptime(k, "%Y-%m-%d")).days < 7}
     save_state(state)
 
-    print(f"✓ 슬랙 전송 완료 — 신규 {len(new_items)}건 알림")
+    print(f"✓ 텔레그램 전송 완료 — 신규 {len(new_items)}건 알림")
 
 
 if __name__ == "__main__":
